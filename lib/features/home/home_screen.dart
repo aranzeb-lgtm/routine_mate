@@ -1,21 +1,54 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/group_model.dart';
+import '../../data/models/routine_model.dart';
+import '../../data/models/user_model.dart';
+import '../../data/repositories/firestore_repository.dart';
 import '../checkin/checkin_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  static const String _routineId = 'routine_001';
+  static const String _groupId = 'group_001';
+  static const String _userId = 'test_user_001';
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final FirestoreRepository _repository = FirestoreRepository();
+  late Future<_HomeData> _futureData;
+
+  @override
+  void initState() {
+    super.initState();
+    _futureData = _loadHomeData();
+  }
+
+  Future<_HomeData> _loadHomeData() async {
+    final results = await Future.wait([
+      _repository.getRoutine(HomeScreen._routineId),
+      _repository.getGroup(HomeScreen._groupId),
+      _repository.getUser(HomeScreen._userId),
+    ]);
+    return _HomeData(
+      routine: results[0] as RoutineModel,
+      group: results[1] as GroupModel,
+      user: results[2] as UserModel,
+    );
+  }
+
+  void _reload() {
+    setState(() {
+      _futureData = _loadHomeData();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    const routineName = '퇴근 후 스트레칭';
-    const duration = '10분';
-    const scheduledTime = '오늘 밤 10:00';
-    const totalMembers = 5;
-    const completedMembers = 2;
-    const streakDays = 3;
-
     final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -24,60 +57,152 @@ class HomeScreen extends StatelessWidget {
         centerTitle: false,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                '오늘도 10분만 같이 해볼까요?',
-                style: textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: colorScheme.onSurface,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 20),
-              _RoutineCard(
-                routineName: routineName,
-                duration: duration,
-                scheduledTime: scheduledTime,
-                completedMembers: completedMembers,
-                totalMembers: totalMembers,
-                streakDays: streakDays,
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text('루틴 시작하기'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const CheckinScreen(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('완료 인증하기'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+        child: FutureBuilder<_HomeData>(
+          future: _futureData,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return _ErrorView(
+                message: '데이터를 불러오지 못했어요\n${snapshot.error}',
+                onRetry: _reload,
+              );
+            }
+            final data = snapshot.data!;
+            return _HomeContent(data: data);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeData {
+  const _HomeData({
+    required this.routine,
+    required this.group,
+    required this.user,
+  });
+
+  final RoutineModel routine;
+  final GroupModel group;
+  final UserModel user;
+}
+
+class _HomeContent extends StatelessWidget {
+  const _HomeContent({required this.data});
+
+  final _HomeData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    final routine = data.routine;
+    final group = data.group;
+    final user = data.user;
+
+    final totalMembers = group.memberCount;
+    final completedMembers = group.todayCompletedCount;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '오늘도 ${routine.durationMinutes}분만 같이 해볼까요?',
+            style: textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: colorScheme.onSurface,
+              height: 1.3,
+            ),
           ),
+          const SizedBox(height: 20),
+          _RoutineCard(
+            routineName: routine.routineName,
+            duration: '${routine.durationMinutes}분',
+            scheduledTime: user.routineTime,
+            completedMembers: completedMembers,
+            totalMembers: totalMembers,
+            streakDays: user.streakCount,
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () {},
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('루틴 시작하기'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              textStyle: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const CheckinScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('완료 인증하기'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              textStyle: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.cloud_off_rounded,
+              size: 56,
+              color: colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.tonalIcon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('다시 시도'),
+            ),
+          ],
         ),
       ),
     );
