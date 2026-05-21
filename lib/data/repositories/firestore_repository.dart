@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../models/checkin_model.dart';
 import '../models/group_model.dart';
 import '../models/routine_model.dart';
 import '../models/user_model.dart';
@@ -32,5 +33,10 @@ class FirestoreRepository {
       throw StateError('사용자 문서를 찾을 수 없습니다: $userId');
     }
     return UserModel.fromFirestore(doc);
+  }
+
+  Future<String> createCheckin(CheckinModel checkin) async {
+    final ref = await _db.collection('checkins').add(checkin.toCreateMap());
+    return ref.id;
   }
 }

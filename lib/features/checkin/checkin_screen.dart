@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/checkin_model.dart';
+import '../../data/repositories/firestore_repository.dart';
+
 class CheckinScreen extends StatefulWidget {
   const CheckinScreen({super.key});
+
+  static const String _userId = 'test_user_001';
+  static const String _groupId = 'group_001';
+  static const String _routineId = 'routine_001';
 
   @override
   State<CheckinScreen> createState() => _CheckinScreenState();
@@ -9,6 +16,9 @@ class CheckinScreen extends StatefulWidget {
 
 class _CheckinScreenState extends State<CheckinScreen> {
   final TextEditingController _memoController = TextEditingController();
+  final FirestoreRepository _repository = FirestoreRepository();
+
+  bool _isSaving = false;
 
   @override
   void dispose() {
@@ -16,17 +26,53 @@ class _CheckinScreenState extends State<CheckinScreen> {
     super.dispose();
   }
 
-  void _onSubmit() {
+  String _todayDateString() {
+    final now = DateTime.now();
+    final y = now.year.toString().padLeft(4, '0');
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  Future<void> _onSubmit() async {
+    if (_isSaving) return;
+
     FocusScope.of(context).unfocus();
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('오늘의 루틴 인증이 기록되었어요!'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    Navigator.of(context).pop();
+    setState(() => _isSaving = true);
+
+    final checkin = CheckinModel(
+      userId: CheckinScreen._userId,
+      groupId: CheckinScreen._groupId,
+      routineId: CheckinScreen._routineId,
+      date: _todayDateString(),
+      memo: _memoController.text.trim(),
+      status: 'completed',
+    );
+
+    try {
+      await _repository.createCheckin(checkin);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('오늘 루틴 인증이 저장됐어요'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('저장에 실패했어요: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
   }
 
   @override
@@ -95,6 +141,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
               TextField(
                 controller: _memoController,
                 maxLength: 50,
+                enabled: !_isSaving,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _onSubmit(),
                 decoration: InputDecoration(
@@ -124,9 +171,17 @@ class _CheckinScreenState extends State<CheckinScreen> {
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: _onSubmit,
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('인증 완료하기'),
+                onPressed: _isSaving ? null : _onSubmit,
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                        ),
+                      )
+                    : const Icon(Icons.check_circle_outline),
+                label: Text(_isSaving ? '저장 중...' : '인증 완료하기'),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
                   textStyle: textTheme.titleMedium?.copyWith(
