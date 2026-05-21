@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "627206884619",
+    "project_id": "routine-mate-a07cd",
+    "storage_bucket": "routine-mate-a07cd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:627206884619:android:74e1b1b9479d6f0593660e",
+        "android_client_info": {
+          "package_name": "com.example.routine_mate"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAZPjnRqbGN3JLGPZ_wHWLrR0YKKnHdj8g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
