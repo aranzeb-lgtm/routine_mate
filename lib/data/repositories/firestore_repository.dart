@@ -51,6 +51,16 @@ class FirestoreRepository {
         .toList();
   }
 
+  Future<List<CheckinModel>> getUserCheckins(String userId) async {
+    final snap = await _db
+        .collection('checkins')
+        .where('userId', isEqualTo: userId)
+        .get();
+    final checkins = snap.docs.map(CheckinModel.fromFirestore).toList();
+    checkins.sort((a, b) => b.date.compareTo(a.date));
+    return checkins;
+  }
+
   Future<List<CheckinModel>> getTodayCheckins(String groupId) async {
     final today = _todayDateString();
     final snap = await _db
