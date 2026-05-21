@@ -60,7 +60,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
             behavior: SnackBarBehavior.floating,
           ),
         );
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSaving = false);

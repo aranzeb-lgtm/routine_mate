@@ -1,20 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/checkin_model.dart';
+import '../../data/models/group_model.dart';
+import '../../data/models/user_model.dart';
+import '../../data/repositories/firestore_repository.dart';
 import '../checkin/checkin_screen.dart';
 
-class GroupsScreen extends StatelessWidget {
+class GroupsScreen extends StatefulWidget {
   const GroupsScreen({super.key});
 
-  static const String _groupName = '퇴근 후 스트레칭 그룹';
-  static const String _groupDescription = '퇴근 후 10분, 같이 몸을 풀어요';
-
-  static const List<_Member> _members = [
-    _Member(name: '리체', isCompleted: true),
-    _Member(name: '민준', isCompleted: true),
-    _Member(name: '대표님', isCompleted: false),
-    _Member(name: '지연', isCompleted: false),
-    _Member(name: '수아', isCompleted: false),
-  ];
+  static const String _groupId = 'group_001';
 
   static const List<_Reaction> _reactions = [
     _Reaction(emoji: '👏', label: '수고했어요'),
@@ -22,7 +17,40 @@ class GroupsScreen extends StatelessWidget {
     _Reaction(emoji: '💪', label: '오늘도 성공'),
   ];
 
-  void _onReactionTap(BuildContext context, _Reaction reaction) {
+  @override
+  State<GroupsScreen> createState() => _GroupsScreenState();
+}
+
+class _GroupsScreenState extends State<GroupsScreen> {
+  final FirestoreRepository _repository = FirestoreRepository();
+  late Future<_GroupData> _futureData;
+
+  @override
+  void initState() {
+    super.initState();
+    _futureData = _loadGroupData();
+  }
+
+  Future<_GroupData> _loadGroupData() async {
+    final group = await _repository.getGroup(GroupsScreen._groupId);
+    final results = await Future.wait([
+      _repository.getGroupMembers(group.memberIds),
+      _repository.getTodayCheckins(group.id),
+    ]);
+    return _GroupData(
+      group: group,
+      members: results[0] as List<UserModel>,
+      todayCheckins: results[1] as List<CheckinModel>,
+    );
+  }
+
+  void _reload() {
+    setState(() {
+      _futureData = _loadGroupData();
+    });
+  }
+
+  void _onReactionTap(_Reaction reaction) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -33,20 +61,19 @@ class GroupsScreen extends StatelessWidget {
       );
   }
 
-  void _goToCheckin(BuildContext context) {
-    Navigator.of(context).push(
+  Future<void> _goToCheckin() async {
+    final didSave = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const CheckinScreen()),
     );
+    if (!mounted) return;
+    if (didSave == true) {
+      _reload();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final completedCount = _members.where((m) => m.isCompleted).length;
-    final totalCount = _members.length;
-    final progress = totalCount == 0 ? 0.0 : completedCount / totalCount;
-
     final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -55,66 +82,41 @@ class GroupsScreen extends StatelessWidget {
         centerTitle: false,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _GroupHeaderCard(
-                name: _groupName,
-                description: _groupDescription,
-                completed: completedCount,
-                total: totalCount,
-                progress: progress,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                '오늘의 멤버',
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _MemberList(members: _members),
-              const SizedBox(height: 24),
-              Text(
-                '응원 보내기',
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _ReactionRow(
-                reactions: _reactions,
-                onTap: (reaction) => _onReactionTap(context, reaction),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: () => _goToCheckin(context),
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('내 루틴 인증하러 가기'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        child: FutureBuilder<_GroupData>(
+          future: _futureData,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return _ErrorView(
+                message: '그룹 정보를 불러오지 못했어요\n${snapshot.error}',
+                onRetry: _reload,
+              );
+            }
+            return _GroupContent(
+              data: snapshot.data!,
+              reactions: GroupsScreen._reactions,
+              onReactionTap: _onReactionTap,
+              onCheckinTap: _goToCheckin,
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _Member {
-  const _Member({required this.name, required this.isCompleted});
+class _GroupData {
+  const _GroupData({
+    required this.group,
+    required this.members,
+    required this.todayCheckins,
+  });
 
-  final String name;
-  final bool isCompleted;
+  final GroupModel group;
+  final List<UserModel> members;
+  final List<CheckinModel> todayCheckins;
 }
 
 class _Reaction {
@@ -124,10 +126,158 @@ class _Reaction {
   final String label;
 }
 
+class _MemberView {
+  const _MemberView({required this.name, required this.isCompleted});
+
+  final String name;
+  final bool isCompleted;
+}
+
+class _GroupContent extends StatelessWidget {
+  const _GroupContent({
+    required this.data,
+    required this.reactions,
+    required this.onReactionTap,
+    required this.onCheckinTap,
+  });
+
+  final _GroupData data;
+  final List<_Reaction> reactions;
+  final ValueChanged<_Reaction> onReactionTap;
+  final VoidCallback onCheckinTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    final group = data.group;
+    final completedUserIds =
+        data.todayCheckins.map((c) => c.userId).toSet();
+
+    bool isUserCompleted(UserModel u) {
+      if (completedUserIds.contains(u.id)) return true;
+      if (u.uid.isNotEmpty && completedUserIds.contains(u.uid)) return true;
+      return false;
+    }
+
+    final memberViews = data.members
+        .map(
+          (u) => _MemberView(
+            name: u.nickname.isEmpty ? u.id : u.nickname,
+            isCompleted: isUserCompleted(u),
+          ),
+        )
+        .toList();
+
+    final totalCount = memberViews.length;
+    final completedCount =
+        memberViews.where((m) => m.isCompleted).length;
+    final progress = totalCount == 0 ? 0.0 : completedCount / totalCount;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _GroupHeaderCard(
+            name: group.groupName,
+            description: group.description,
+            routineTime: group.routineTime,
+            completed: completedCount,
+            total: totalCount,
+            progress: progress,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '오늘의 멤버',
+            style: textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _MemberList(members: memberViews),
+          const SizedBox(height: 24),
+          Text(
+            '응원 보내기',
+            style: textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ReactionRow(
+            reactions: reactions,
+            onTap: onReactionTap,
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: onCheckinTap,
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('내 루틴 인증하러 가기'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              textStyle: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.cloud_off_rounded,
+              size: 56,
+              color: colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.tonalIcon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('다시 시도'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _GroupHeaderCard extends StatelessWidget {
   const _GroupHeaderCard({
     required this.name,
     required this.description,
+    required this.routineTime,
     required this.completed,
     required this.total,
     required this.progress,
@@ -135,6 +285,7 @@ class _GroupHeaderCard extends StatelessWidget {
 
   final String name;
   final String description;
+  final String routineTime;
   final int completed;
   final int total;
   final double progress;
@@ -193,6 +344,13 @@ class _GroupHeaderCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (routineTime.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              _InfoChip(
+                icon: Icons.nightlight_round,
+                label: '루틴 시간 $routineTime',
+              ),
+            ],
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -229,14 +387,68 @@ class _GroupHeaderCard extends StatelessWidget {
   }
 }
 
-class _MemberList extends StatelessWidget {
-  const _MemberList({required this.members});
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.label});
 
-  final List<_Member> members;
+  final IconData icon;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: textTheme.labelLarge?.copyWith(
+              color: colorScheme.onSurface,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MemberList extends StatelessWidget {
+  const _MemberList({required this.members});
+
+  final List<_MemberView> members;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    if (members.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Center(
+          child: Text(
+            '아직 멤버가 없어요',
+            style: textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -265,7 +477,7 @@ class _MemberList extends StatelessWidget {
 class _MemberTile extends StatelessWidget {
   const _MemberTile({required this.member});
 
-  final _Member member;
+  final _MemberView member;
 
   @override
   Widget build(BuildContext context) {

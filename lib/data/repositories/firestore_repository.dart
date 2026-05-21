@@ -39,4 +39,33 @@ class FirestoreRepository {
     final ref = await _db.collection('checkins').add(checkin.toCreateMap());
     return ref.id;
   }
+
+  Future<List<UserModel>> getGroupMembers(List<String> memberIds) async {
+    if (memberIds.isEmpty) return <UserModel>[];
+    final docs = await Future.wait(
+      memberIds.map((id) => _db.collection('users').doc(id).get()),
+    );
+    return docs
+        .where((doc) => doc.exists)
+        .map(UserModel.fromFirestore)
+        .toList();
+  }
+
+  Future<List<CheckinModel>> getTodayCheckins(String groupId) async {
+    final today = _todayDateString();
+    final snap = await _db
+        .collection('checkins')
+        .where('groupId', isEqualTo: groupId)
+        .where('date', isEqualTo: today)
+        .get();
+    return snap.docs.map(CheckinModel.fromFirestore).toList();
+  }
+
+  String _todayDateString() {
+    final now = DateTime.now();
+    final y = now.year.toString().padLeft(4, '0');
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
 }

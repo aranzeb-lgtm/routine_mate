@@ -46,6 +46,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _handleCheckin() async {
+    final didSave = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const CheckinScreen()),
+    );
+    if (!mounted) return;
+    if (didSave == true) {
+      _reload();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -70,7 +80,10 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             }
             final data = snapshot.data!;
-            return _HomeContent(data: data);
+            return _HomeContent(
+              data: data,
+              onCheckinPressed: _handleCheckin,
+            );
           },
         ),
       ),
@@ -91,9 +104,13 @@ class _HomeData {
 }
 
 class _HomeContent extends StatelessWidget {
-  const _HomeContent({required this.data});
+  const _HomeContent({
+    required this.data,
+    required this.onCheckinPressed,
+  });
 
   final _HomeData data;
+  final VoidCallback onCheckinPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -143,13 +160,7 @@ class _HomeContent extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CheckinScreen(),
-                ),
-              );
-            },
+            onPressed: onCheckinPressed,
             icon: const Icon(Icons.check_circle_outline),
             label: const Text('완료 인증하기'),
             style: OutlinedButton.styleFrom(
