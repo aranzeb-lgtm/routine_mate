@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../checkin/checkin_screen.dart';
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
@@ -58,7 +60,13 @@ class HomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               OutlinedButton.icon(
-                onPressed: () {},
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CheckinScreen(),
+                    ),
+                  );
+                },
                 icon: const Icon(Icons.check_circle_outline),
                 label: const Text('완료 인증하기'),
                 style: OutlinedButton.styleFrom(
