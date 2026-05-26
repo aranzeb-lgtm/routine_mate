@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/firestore_repository.dart';
+import '../../data/stores/checkins_scope.dart';
+import '../../data/stores/checkins_store.dart';
+import '../../data/utils/streak.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -50,6 +53,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -61,7 +65,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: FutureBuilder<_ProfileData>(
           future: _futureData,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
+            if (snapshot.connectionState != ConnectionState.done ||
+                store.isLoading) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
@@ -70,8 +75,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onRetry: _reload,
               );
             }
+            if (store.error != null) {
+              return _ErrorView(
+                message: '인증 기록을 불러오지 못했어요\n${store.error}',
+                onRetry: store.load,
+              );
+            }
             return _ProfileContent(
               data: snapshot.data!,
+              store: store,
               description: ProfileScreen._profileDescription,
               onSettingTap: _showComingSoon,
             );
@@ -83,7 +95,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 class _ProfileData {
-  const _ProfileData({required this.user, required this.groups});
+  const _ProfileData({
+    required this.user,
+    required this.groups,
+  });
 
   final UserModel user;
   final List<GroupModel> groups;
@@ -92,11 +107,13 @@ class _ProfileData {
 class _ProfileContent extends StatelessWidget {
   const _ProfileContent({
     required this.data,
+    required this.store,
     required this.description,
     required this.onSettingTap,
   });
 
   final _ProfileData data;
+  final CheckinsStore store;
   final String description;
   final ValueChanged<String> onSettingTap;
 
@@ -107,6 +124,7 @@ class _ProfileContent extends StatelessWidget {
 
     final user = data.user;
     final nickname = user.nickname.isEmpty ? user.id : user.nickname;
+    final streakDays = computeCurrentStreak(store.userCheckins);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -133,7 +151,7 @@ class _ProfileContent extends StatelessWidget {
           _InfoCard(
             icon: Icons.local_fire_department,
             iconColor: Colors.deepOrange.shade400,
-            title: '${user.streakCount}일 연속 진행 중',
+            title: '$streakDays일 연속 진행 중',
             subtitle: '꾸준히 이어가고 있어요',
           ),
           const SizedBox(height: 28),

@@ -40,6 +40,22 @@ class FirestoreRepository {
     return ref.id;
   }
 
+  Future<bool> hasTodayCheckin({
+    required String userId,
+    required String groupId,
+  }) async {
+    final today = _todayDateString();
+    final snap = await _db
+        .collection('checkins')
+        .where('userId', isEqualTo: userId)
+        .where('groupId', isEqualTo: groupId)
+        .where('date', isEqualTo: today)
+        .where('status', isEqualTo: 'completed')
+        .limit(1)
+        .get();
+    return snap.docs.isNotEmpty;
+  }
+
   Future<List<GroupModel>> getUserGroups(List<String> groupIds) async {
     if (groupIds.isEmpty) return <GroupModel>[];
     final docs = await Future.wait(

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/firestore_repository.dart';
+import '../../data/stores/checkins_scope.dart';
+import '../../data/stores/checkins_store.dart';
 import '../checkin/checkin_screen.dart';
 
 class GroupsScreen extends StatefulWidget {
@@ -33,15 +34,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
   Future<_GroupData> _loadGroupData() async {
     final group = await _repository.getGroup(GroupsScreen._groupId);
-    final results = await Future.wait([
-      _repository.getGroupMembers(group.memberIds),
-      _repository.getTodayCheckins(group.id),
-    ]);
-    return _GroupData(
-      group: group,
-      members: results[0] as List<UserModel>,
-      todayCheckins: results[1] as List<CheckinModel>,
-    );
+    final members = await _repository.getGroupMembers(group.memberIds);
+    return _GroupData(group: group, members: members);
   }
 
   void _reload() {
@@ -62,18 +56,15 @@ class _GroupsScreenState extends State<GroupsScreen> {
   }
 
   Future<void> _goToCheckin() async {
-    final didSave = await Navigator.of(context).push<bool>(
+    await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CheckinScreen()),
     );
-    if (!mounted) return;
-    if (didSave == true) {
-      _reload();
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -85,7 +76,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
         child: FutureBuilder<_GroupData>(
           future: _futureData,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
+            if (snapshot.connectionState != ConnectionState.done ||
+                store.isLoading) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
@@ -94,8 +86,15 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 onRetry: _reload,
               );
             }
+            if (store.error != null) {
+              return _ErrorView(
+                message: '인증 기록을 불러오지 못했어요\n${store.error}',
+                onRetry: store.load,
+              );
+            }
             return _GroupContent(
               data: snapshot.data!,
+              store: store,
               reactions: GroupsScreen._reactions,
               onReactionTap: _onReactionTap,
               onCheckinTap: _goToCheckin,
@@ -111,12 +110,10 @@ class _GroupData {
   const _GroupData({
     required this.group,
     required this.members,
-    required this.todayCheckins,
   });
 
   final GroupModel group;
   final List<UserModel> members;
-  final List<CheckinModel> todayCheckins;
 }
 
 class _Reaction {
@@ -136,12 +133,14 @@ class _MemberView {
 class _GroupContent extends StatelessWidget {
   const _GroupContent({
     required this.data,
+    required this.store,
     required this.reactions,
     required this.onReactionTap,
     required this.onCheckinTap,
   });
 
   final _GroupData data;
+  final CheckinsStore store;
   final List<_Reaction> reactions;
   final ValueChanged<_Reaction> onReactionTap;
   final VoidCallback onCheckinTap;
@@ -152,8 +151,10 @@ class _GroupContent extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     final group = data.group;
-    final completedUserIds =
-        data.todayCheckins.map((c) => c.userId).toSet();
+    final completedUserIds = store.todayGroupCheckins
+        .where((c) => c.groupId == group.id)
+        .map((c) => c.userId)
+        .toSet();
 
     bool isUserCompleted(UserModel u) {
       if (completedUserIds.contains(u.id)) return true;

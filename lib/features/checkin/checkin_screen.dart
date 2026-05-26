@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
-import '../../data/repositories/firestore_repository.dart';
+import '../../data/stores/checkins_scope.dart';
 
 class CheckinScreen extends StatefulWidget {
   const CheckinScreen({super.key});
@@ -16,7 +16,6 @@ class CheckinScreen extends StatefulWidget {
 
 class _CheckinScreenState extends State<CheckinScreen> {
   final TextEditingController _memoController = TextEditingController();
-  final FirestoreRepository _repository = FirestoreRepository();
 
   bool _isSaving = false;
 
@@ -38,19 +37,34 @@ class _CheckinScreenState extends State<CheckinScreen> {
     if (_isSaving) return;
 
     FocusScope.of(context).unfocus();
+    final store = CheckinsScope.of(context);
     setState(() => _isSaving = true);
 
-    final checkin = CheckinModel(
-      userId: CheckinScreen._userId,
-      groupId: CheckinScreen._groupId,
-      routineId: CheckinScreen._routineId,
-      date: _todayDateString(),
-      memo: _memoController.text.trim(),
-      status: 'completed',
-    );
-
     try {
-      await _repository.createCheckin(checkin);
+      if (store.hasTodayCheckin(groupId: CheckinScreen._groupId)) {
+        if (!mounted) return;
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('오늘은 이미 인증했어요'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        return;
+      }
+
+      final checkin = CheckinModel(
+        userId: CheckinScreen._userId,
+        groupId: CheckinScreen._groupId,
+        routineId: CheckinScreen._routineId,
+        date: _todayDateString(),
+        memo: _memoController.text.trim(),
+        status: 'completed',
+      );
+
+      await store.addCheckin(checkin);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()

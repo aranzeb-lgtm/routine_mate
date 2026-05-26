@@ -1,36 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
-import '../../data/repositories/firestore_repository.dart';
+import '../../data/stores/checkins_scope.dart';
 
-class RecordsScreen extends StatefulWidget {
+class RecordsScreen extends StatelessWidget {
   const RecordsScreen({super.key});
-
-  static const String _userId = 'test_user_001';
-
-  @override
-  State<RecordsScreen> createState() => _RecordsScreenState();
-}
-
-class _RecordsScreenState extends State<RecordsScreen> {
-  final FirestoreRepository _repository = FirestoreRepository();
-  late Future<List<CheckinModel>> _futureCheckins;
-
-  @override
-  void initState() {
-    super.initState();
-    _futureCheckins = _repository.getUserCheckins(RecordsScreen._userId);
-  }
-
-  void _reload() {
-    setState(() {
-      _futureCheckins = _repository.getUserCheckins(RecordsScreen._userId);
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -39,19 +18,18 @@ class _RecordsScreenState extends State<RecordsScreen> {
         centerTitle: false,
       ),
       body: SafeArea(
-        child: FutureBuilder<List<CheckinModel>>(
-          future: _futureCheckins,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
+        child: Builder(
+          builder: (context) {
+            if (store.isLoading && store.userCheckins.isEmpty) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snapshot.hasError) {
+            if (store.error != null && store.userCheckins.isEmpty) {
               return _ErrorView(
-                message: '기록을 불러오지 못했어요\n${snapshot.error}',
-                onRetry: _reload,
+                message: '기록을 불러오지 못했어요\n${store.error}',
+                onRetry: store.load,
               );
             }
-            return _RecordsContent(checkins: snapshot.data!);
+            return _RecordsContent(checkins: store.userCheckins);
           },
         ),
       ),

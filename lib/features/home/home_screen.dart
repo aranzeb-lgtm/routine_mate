@@ -4,6 +4,9 @@ import '../../data/models/group_model.dart';
 import '../../data/models/routine_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/firestore_repository.dart';
+import '../../data/stores/checkins_scope.dart';
+import '../../data/stores/checkins_store.dart';
+import '../../data/utils/streak.dart';
 import '../checkin/checkin_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -19,21 +22,21 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
-  late Future<_HomeData> _futureData;
+  late Future<_HomeBaseData> _futureData;
 
   @override
   void initState() {
     super.initState();
-    _futureData = _loadHomeData();
+    _futureData = _loadBaseData();
   }
 
-  Future<_HomeData> _loadHomeData() async {
+  Future<_HomeBaseData> _loadBaseData() async {
     final results = await Future.wait([
       _repository.getRoutine(HomeScreen._routineId),
       _repository.getGroup(HomeScreen._groupId),
       _repository.getUser(HomeScreen._userId),
     ]);
-    return _HomeData(
+    return _HomeBaseData(
       routine: results[0] as RoutineModel,
       group: results[1] as GroupModel,
       user: results[2] as UserModel,
@@ -42,23 +45,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _reload() {
     setState(() {
-      _futureData = _loadHomeData();
+      _futureData = _loadBaseData();
     });
   }
 
   Future<void> _handleCheckin() async {
-    final didSave = await Navigator.of(context).push<bool>(
+    await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CheckinScreen()),
     );
-    if (!mounted) return;
-    if (didSave == true) {
-      _reload();
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -67,10 +67,11 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: false,
       ),
       body: SafeArea(
-        child: FutureBuilder<_HomeData>(
+        child: FutureBuilder<_HomeBaseData>(
           future: _futureData,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
+            if (snapshot.connectionState != ConnectionState.done ||
+                store.isLoading) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
@@ -79,10 +80,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 onRetry: _reload,
               );
             }
-            final data = snapshot.data!;
+            if (store.error != null) {
+              return _ErrorView(
+                message: '인증 기록을 불러오지 못했어요\n${store.error}',
+                onRetry: store.load,
+              );
+            }
             return _HomeContent(
-              data: data,
+              data: snapshot.data!,
+              store: store,
               onCheckinPressed: _handleCheckin,
+              groupId: HomeScreen._groupId,
             );
           },
         ),
@@ -91,8 +99,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _HomeData {
-  const _HomeData({
+class _HomeBaseData {
+  const _HomeBaseData({
     required this.routine,
     required this.group,
     required this.user,
@@ -106,11 +114,15 @@ class _HomeData {
 class _HomeContent extends StatelessWidget {
   const _HomeContent({
     required this.data,
+    required this.store,
     required this.onCheckinPressed,
+    required this.groupId,
   });
 
-  final _HomeData data;
+  final _HomeBaseData data;
+  final CheckinsStore store;
   final VoidCallback onCheckinPressed;
+  final String groupId;
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +134,12 @@ class _HomeContent extends StatelessWidget {
     final user = data.user;
 
     final totalMembers = group.memberCount;
-    final completedMembers = group.todayCompletedCount;
+    final todayGroupCheckins = store.todayGroupCheckins
+        .where((c) => c.groupId == groupId)
+        .toList();
+    final completedMembers =
+        todayGroupCheckins.map((c) => c.userId).toSet().length;
+    final streakDays = computeCurrentStreak(store.userCheckins);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -144,7 +161,7 @@ class _HomeContent extends StatelessWidget {
             scheduledTime: user.routineTime,
             completedMembers: completedMembers,
             totalMembers: totalMembers,
-            streakDays: user.streakCount,
+            streakDays: streakDays,
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
