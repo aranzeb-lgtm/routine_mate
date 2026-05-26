@@ -40,6 +40,17 @@ class FirestoreRepository {
     return ref.id;
   }
 
+  Future<List<GroupModel>> getUserGroups(List<String> groupIds) async {
+    if (groupIds.isEmpty) return <GroupModel>[];
+    final docs = await Future.wait(
+      groupIds.map((id) => _db.collection('groups').doc(id).get()),
+    );
+    return docs
+        .where((doc) => doc.exists)
+        .map(GroupModel.fromFirestore)
+        .toList();
+  }
+
   Future<List<UserModel>> getGroupMembers(List<String> memberIds) async {
     if (memberIds.isEmpty) return <UserModel>[];
     final docs = await Future.wait(
