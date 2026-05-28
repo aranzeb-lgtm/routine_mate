@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 
 class CheckinScreen extends StatefulWidget {
   const CheckinScreen({super.key});
 
-  static const String _userId = 'test_user_001';
   static const String _groupId = 'group_001';
   static const String _routineId = 'routine_001';
 
@@ -17,6 +17,8 @@ class CheckinScreen extends StatefulWidget {
 class _CheckinScreenState extends State<CheckinScreen> {
   final TextEditingController _memoController = TextEditingController();
   final FirestoreRepository _repository = FirestoreRepository();
+  final AuthRepository _auth = AuthRepository();
+  late final String _userId;
   late final Stream<CheckinModel?> _todayCheckinStream;
 
   bool _isSaving = false;
@@ -24,8 +26,9 @@ class _CheckinScreenState extends State<CheckinScreen> {
   @override
   void initState() {
     super.initState();
+    _userId = _auth.currentUserId!;
     _todayCheckinStream = _repository.watchUserTodayCheckin(
-      CheckinScreen._userId,
+      _userId,
       CheckinScreen._groupId,
     );
   }
@@ -52,7 +55,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
 
     try {
       final checkin = CheckinModel(
-        userId: CheckinScreen._userId,
+        userId: _userId,
         groupId: CheckinScreen._groupId,
         routineId: CheckinScreen._routineId,
         date: _todayDateString(),

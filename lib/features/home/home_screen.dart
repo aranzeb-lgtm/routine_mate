@@ -4,6 +4,7 @@ import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/routine_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 import '../../data/utils/streak.dart';
 import '../checkin/checkin_screen.dart';
@@ -13,7 +14,6 @@ class HomeScreen extends StatefulWidget {
 
   static const String _routineId = 'routine_001';
   static const String _groupId = 'group_001';
-  static const String _userId = 'test_user_001';
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -21,6 +21,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
+  final AuthRepository _auth = AuthRepository();
+  late final String _userId;
   late Future<_HomeBaseData> _futureData;
   late Stream<List<CheckinModel>> _todayGroupCheckinsStream;
   late Stream<List<CheckinModel>> _userCheckinsStream;
@@ -28,18 +30,18 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _userId = _auth.currentUserId!;
     _futureData = _loadBaseData();
     _todayGroupCheckinsStream =
         _repository.watchTodayCheckins(HomeScreen._groupId);
-    _userCheckinsStream =
-        _repository.watchUserCheckins(HomeScreen._userId);
+    _userCheckinsStream = _repository.watchUserCheckins(_userId);
   }
 
   Future<_HomeBaseData> _loadBaseData() async {
     final results = await Future.wait([
       _repository.getRoutine(HomeScreen._routineId),
       _repository.getGroup(HomeScreen._groupId),
-      _repository.getUser(HomeScreen._userId),
+      _repository.getUser(_userId),
     ]);
     return _HomeBaseData(
       routine: results[0] as RoutineModel,

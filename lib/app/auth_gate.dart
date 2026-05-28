@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../data/repositories/auth_repository.dart';
+import '../data/repositories/firestore_repository.dart';
 import 'main_tab_screen.dart';
 
 class AuthGate extends StatefulWidget {
@@ -13,6 +14,7 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   final AuthRepository _authRepository = AuthRepository();
+  final FirestoreRepository _firestoreRepository = FirestoreRepository();
   Object? _initError;
 
   @override
@@ -25,6 +27,7 @@ class _AuthGateState extends State<AuthGate> {
     try {
       final user = await _authRepository.signInAnonymouslyIfNeeded();
       debugPrint('Signed in as: ${user.uid}');
+      await _firestoreRepository.ensureUserDocument(user.uid);
     } catch (e) {
       if (!mounted) return;
       setState(() => _initError = e);

@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 import '../../data/utils/streak.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  static const String _userId = 'test_user_001';
   static const String _profileDescription = '오늘도 루틴을 이어가는 중이에요';
 
   @override
@@ -18,19 +18,21 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
+  final AuthRepository _auth = AuthRepository();
+  late final String _userId;
   late Future<_ProfileData> _futureData;
   late Stream<List<CheckinModel>> _userCheckinsStream;
 
   @override
   void initState() {
     super.initState();
+    _userId = _auth.currentUserId!;
     _futureData = _loadProfileData();
-    _userCheckinsStream =
-        _repository.watchUserCheckins(ProfileScreen._userId);
+    _userCheckinsStream = _repository.watchUserCheckins(_userId);
   }
 
   Future<_ProfileData> _loadProfileData() async {
-    final user = await _repository.getUser(ProfileScreen._userId);
+    final user = await _repository.getUser(_userId);
     final groups = await _repository.getUserGroups(user.joinedGroupIds);
     return _ProfileData(user: user, groups: groups);
   }

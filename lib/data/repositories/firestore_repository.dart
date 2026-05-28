@@ -27,6 +27,27 @@ class FirestoreRepository {
     return GroupModel.fromFirestore(doc);
   }
 
+  Future<void> ensureUserDocument(String uid) async {
+    final docRef = _db.collection('users').doc(uid);
+    final snap = await docRef.get();
+    if (!snap.exists) {
+      await docRef.set({
+        'uid': uid,
+        'nickname': '대표님',
+        'email': '',
+        'routineTime': '22:00',
+        'streakCount': 0,
+        'joinedGroupIds': ['group_001'],
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else {
+      await docRef.set({
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
   Future<UserModel> getUser(String userId) async {
     final doc = await _db.collection('users').doc(userId).get();
     if (!doc.exists) {
