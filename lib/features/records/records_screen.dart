@@ -1,15 +1,36 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
-import '../../data/stores/checkins_scope.dart';
+import '../../data/repositories/firestore_repository.dart';
 
-class RecordsScreen extends StatelessWidget {
+class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
+
+  static const String _userId = 'test_user_001';
+
+  @override
+  State<RecordsScreen> createState() => _RecordsScreenState();
+}
+
+class _RecordsScreenState extends State<RecordsScreen> {
+  final FirestoreRepository _repository = FirestoreRepository();
+  late Stream<List<CheckinModel>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = _repository.watchUserCheckins(RecordsScreen._userId);
+  }
+
+  void _retry() {
+    setState(() {
+      _stream = _repository.watchUserCheckins(RecordsScreen._userId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -18,18 +39,21 @@ class RecordsScreen extends StatelessWidget {
         centerTitle: false,
       ),
       body: SafeArea(
-        child: Builder(
-          builder: (context) {
-            if (store.isLoading && store.userCheckins.isEmpty) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (store.error != null && store.userCheckins.isEmpty) {
+        child: StreamBuilder<List<CheckinModel>>(
+          stream: _stream,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
               return _ErrorView(
-                message: '기록을 불러오지 못했어요\n${store.error}',
-                onRetry: store.load,
+                message: '기록을 불러오지 못했어요\n${snapshot.error}',
+                onRetry: _retry,
               );
             }
-            return _RecordsContent(checkins: store.userCheckins);
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final checkins = snapshot.data ?? const <CheckinModel>[];
+            return _RecordsContent(checkins: checkins);
           },
         ),
       ),

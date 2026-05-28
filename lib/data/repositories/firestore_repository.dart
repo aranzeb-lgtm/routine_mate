@@ -98,6 +98,48 @@ class FirestoreRepository {
     return snap.docs.map(CheckinModel.fromFirestore).toList();
   }
 
+  Stream<List<CheckinModel>> watchTodayCheckins(String groupId) {
+    final today = _todayDateString();
+    return _db
+        .collection('checkins')
+        .where('groupId', isEqualTo: groupId)
+        .where('date', isEqualTo: today)
+        .where('status', isEqualTo: 'completed')
+        .snapshots()
+        .map((snap) => snap.docs.map(CheckinModel.fromFirestore).toList());
+  }
+
+  Stream<List<CheckinModel>> watchUserCheckins(String userId) {
+    return _db
+        .collection('checkins')
+        .where('userId', isEqualTo: userId)
+        .where('status', isEqualTo: 'completed')
+        .snapshots()
+        .map((snap) {
+      final list = snap.docs.map(CheckinModel.fromFirestore).toList();
+      list.sort((a, b) => b.date.compareTo(a.date));
+      return list;
+    });
+  }
+
+  Stream<CheckinModel?> watchUserTodayCheckin(
+    String userId,
+    String groupId,
+  ) {
+    final today = _todayDateString();
+    return _db
+        .collection('checkins')
+        .where('userId', isEqualTo: userId)
+        .where('groupId', isEqualTo: groupId)
+        .where('date', isEqualTo: today)
+        .where('status', isEqualTo: 'completed')
+        .limit(1)
+        .snapshots()
+        .map((snap) => snap.docs.isEmpty
+            ? null
+            : CheckinModel.fromFirestore(snap.docs.first));
+  }
+
   String _todayDateString() {
     final now = DateTime.now();
     final y = now.year.toString().padLeft(4, '0');

@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/routine_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/firestore_repository.dart';
-import '../../data/stores/checkins_scope.dart';
-import '../../data/stores/checkins_store.dart';
 import '../../data/utils/streak.dart';
 import '../checkin/checkin_screen.dart';
 
@@ -23,11 +22,17 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
   late Future<_HomeBaseData> _futureData;
+  late Stream<List<CheckinModel>> _todayGroupCheckinsStream;
+  late Stream<List<CheckinModel>> _userCheckinsStream;
 
   @override
   void initState() {
     super.initState();
     _futureData = _loadBaseData();
+    _todayGroupCheckinsStream =
+        _repository.watchTodayCheckins(HomeScreen._groupId);
+    _userCheckinsStream =
+        _repository.watchUserCheckins(HomeScreen._userId);
   }
 
   Future<_HomeBaseData> _loadBaseData() async {
@@ -58,7 +63,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -69,28 +73,58 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: FutureBuilder<_HomeBaseData>(
           future: _futureData,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done ||
-                store.isLoading) {
+          builder: (context, baseSnap) {
+            if (baseSnap.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snapshot.hasError) {
+            if (baseSnap.hasError) {
               return _ErrorView(
-                message: '데이터를 불러오지 못했어요\n${snapshot.error}',
+                message: '데이터를 불러오지 못했어요\n${baseSnap.error}',
                 onRetry: _reload,
               );
             }
-            if (store.error != null) {
-              return _ErrorView(
-                message: '인증 기록을 불러오지 못했어요\n${store.error}',
-                onRetry: store.load,
-              );
-            }
-            return _HomeContent(
-              data: snapshot.data!,
-              store: store,
-              onCheckinPressed: _handleCheckin,
-              groupId: HomeScreen._groupId,
+            return StreamBuilder<List<CheckinModel>>(
+              stream: _todayGroupCheckinsStream,
+              builder: (context, todaySnap) {
+                if (todaySnap.hasError) {
+                  return _ErrorView(
+                    message: '오늘 인증을 불러오지 못했어요\n${todaySnap.error}',
+                    onRetry: _reload,
+                  );
+                }
+                if (todaySnap.connectionState == ConnectionState.waiting &&
+                    !todaySnap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final todayCheckins =
+                    todaySnap.data ?? const <CheckinModel>[];
+
+                return StreamBuilder<List<CheckinModel>>(
+                  stream: _userCheckinsStream,
+                  builder: (context, userSnap) {
+                    if (userSnap.hasError) {
+                      return _ErrorView(
+                        message: '내 인증 기록을 불러오지 못했어요\n${userSnap.error}',
+                        onRetry: _reload,
+                      );
+                    }
+                    if (userSnap.connectionState ==
+                            ConnectionState.waiting &&
+                        !userSnap.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final userCheckins =
+                        userSnap.data ?? const <CheckinModel>[];
+
+                    return _HomeContent(
+                      data: baseSnap.data!,
+                      todayCheckins: todayCheckins,
+                      userCheckins: userCheckins,
+                      onCheckinPressed: _handleCheckin,
+                    );
+                  },
+                );
+              },
             );
           },
         ),
@@ -114,15 +148,15 @@ class _HomeBaseData {
 class _HomeContent extends StatelessWidget {
   const _HomeContent({
     required this.data,
-    required this.store,
+    required this.todayCheckins,
+    required this.userCheckins,
     required this.onCheckinPressed,
-    required this.groupId,
   });
 
   final _HomeBaseData data;
-  final CheckinsStore store;
+  final List<CheckinModel> todayCheckins;
+  final List<CheckinModel> userCheckins;
   final VoidCallback onCheckinPressed;
-  final String groupId;
 
   @override
   Widget build(BuildContext context) {
@@ -134,12 +168,9 @@ class _HomeContent extends StatelessWidget {
     final user = data.user;
 
     final totalMembers = group.memberCount;
-    final todayGroupCheckins = store.todayGroupCheckins
-        .where((c) => c.groupId == groupId)
-        .toList();
     final completedMembers =
-        todayGroupCheckins.map((c) => c.userId).toSet().length;
-    final streakDays = computeCurrentStreak(store.userCheckins);
+        todayCheckins.map((c) => c.userId).toSet().length;
+    final streakDays = computeCurrentStreak(userCheckins);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),

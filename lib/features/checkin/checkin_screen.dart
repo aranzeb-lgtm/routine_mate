@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
-import '../../data/stores/checkins_scope.dart';
+import '../../data/repositories/firestore_repository.dart';
 
 class CheckinScreen extends StatefulWidget {
   const CheckinScreen({super.key});
@@ -16,8 +16,19 @@ class CheckinScreen extends StatefulWidget {
 
 class _CheckinScreenState extends State<CheckinScreen> {
   final TextEditingController _memoController = TextEditingController();
+  final FirestoreRepository _repository = FirestoreRepository();
+  late final Stream<CheckinModel?> _todayCheckinStream;
 
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _todayCheckinStream = _repository.watchUserTodayCheckin(
+      CheckinScreen._userId,
+      CheckinScreen._groupId,
+    );
+  }
 
   @override
   void dispose() {
@@ -37,24 +48,9 @@ class _CheckinScreenState extends State<CheckinScreen> {
     if (_isSaving) return;
 
     FocusScope.of(context).unfocus();
-    final store = CheckinsScope.of(context);
     setState(() => _isSaving = true);
 
     try {
-      if (store.hasTodayCheckin(groupId: CheckinScreen._groupId)) {
-        if (!mounted) return;
-        setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(
-              content: Text('오늘은 이미 인증했어요'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        return;
-      }
-
       final checkin = CheckinModel(
         userId: CheckinScreen._userId,
         groupId: CheckinScreen._groupId,
@@ -64,7 +60,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
         status: 'completed',
       );
 
-      await store.addCheckin(checkin);
+      await _repository.createCheckin(checkin);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -74,7 +70,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
             behavior: SnackBarBehavior.floating,
           ),
         );
-      Navigator.of(context).pop(true);
+      Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSaving = false);
@@ -104,107 +100,170 @@ class _CheckinScreenState extends State<CheckinScreen> {
         centerTitle: false,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 12),
-              Center(
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.check_rounded,
-                    size: 72,
-                    color: colorScheme.onPrimaryContainer,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                routineName,
-                textAlign: TextAlign.center,
-                style: textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                guideText,
-                textAlign: TextAlign.center,
-                style: textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 28),
-              Text(
-                '한 줄 메모',
-                style: textTheme.labelLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _memoController,
-                maxLength: 50,
-                enabled: !_isSaving,
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _onSubmit(),
-                decoration: InputDecoration(
-                  hintText: '오늘의 기분이나 느낀 점을 남겨보세요',
-                  filled: true,
-                  fillColor: colorScheme.surfaceContainerHighest,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(
-                      color: colorScheme.primary,
-                      width: 1.5,
+        child: StreamBuilder<CheckinModel?>(
+          stream: _todayCheckinStream,
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return _ErrorView(
+                message: '인증 상태를 확인할 수 없어요\n${snap.error}',
+              );
+            }
+            if (snap.connectionState == ConnectionState.waiting &&
+                !snap.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final alreadyDone = snap.data != null;
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 12),
+                  Center(
+                    child: Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.check_rounded,
+                        size: 72,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
                     ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
+                  const SizedBox(height: 24),
+                  Text(
+                    routineName,
+                    textAlign: TextAlign.center,
+                    style: textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: colorScheme.onSurface,
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _isSaving ? null : _onSubmit,
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.4,
+                  const SizedBox(height: 12),
+                  Text(
+                    alreadyDone
+                        ? '오늘은 이미 인증을 마쳤어요. 내일도 함께해요!'
+                        : guideText,
+                    textAlign: TextAlign.center,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Text(
+                    '한 줄 메모',
+                    style: textTheme.labelLarge?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _memoController,
+                    maxLength: 50,
+                    enabled: !_isSaving && !alreadyDone,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: alreadyDone ? null : (_) => _onSubmit(),
+                    decoration: InputDecoration(
+                      hintText: '오늘의 기분이나 느낀 점을 남겨보세요',
+                      filled: true,
+                      fillColor: colorScheme.surfaceContainerHighest,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: colorScheme.primary,
+                          width: 1.5,
                         ),
-                      )
-                    : const Icon(Icons.check_circle_outline),
-                label: Text(_isSaving ? '저장 중...' : '인증 완료하기'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: (_isSaving || alreadyDone) ? null : _onSubmit,
+                    icon: alreadyDone
+                        ? const Icon(Icons.check_circle)
+                        : _isSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                ),
+                              )
+                            : const Icon(Icons.check_circle_outline),
+                    label: Text(
+                      alreadyDone
+                          ? '오늘은 이미 인증 완료'
+                          : _isSaving
+                              ? '저장 중...'
+                              : '인증 완료하기',
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                      textStyle: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.cloud_off_rounded,
+              size: 56,
+              color: colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+          ],
         ),
       ),
     );

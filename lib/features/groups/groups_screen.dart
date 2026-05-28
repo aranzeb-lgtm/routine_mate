@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/firestore_repository.dart';
-import '../../data/stores/checkins_scope.dart';
-import '../../data/stores/checkins_store.dart';
 import '../checkin/checkin_screen.dart';
 
 class GroupsScreen extends StatefulWidget {
@@ -25,11 +24,14 @@ class GroupsScreen extends StatefulWidget {
 class _GroupsScreenState extends State<GroupsScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
   late Future<_GroupData> _futureData;
+  late Stream<List<CheckinModel>> _todayCheckinsStream;
 
   @override
   void initState() {
     super.initState();
     _futureData = _loadGroupData();
+    _todayCheckinsStream =
+        _repository.watchTodayCheckins(GroupsScreen._groupId);
   }
 
   Future<_GroupData> _loadGroupData() async {
@@ -64,7 +66,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -75,29 +76,39 @@ class _GroupsScreenState extends State<GroupsScreen> {
       body: SafeArea(
         child: FutureBuilder<_GroupData>(
           future: _futureData,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done ||
-                store.isLoading) {
+          builder: (context, baseSnap) {
+            if (baseSnap.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snapshot.hasError) {
+            if (baseSnap.hasError) {
               return _ErrorView(
-                message: '그룹 정보를 불러오지 못했어요\n${snapshot.error}',
+                message: '그룹 정보를 불러오지 못했어요\n${baseSnap.error}',
                 onRetry: _reload,
               );
             }
-            if (store.error != null) {
-              return _ErrorView(
-                message: '인증 기록을 불러오지 못했어요\n${store.error}',
-                onRetry: store.load,
-              );
-            }
-            return _GroupContent(
-              data: snapshot.data!,
-              store: store,
-              reactions: GroupsScreen._reactions,
-              onReactionTap: _onReactionTap,
-              onCheckinTap: _goToCheckin,
+            return StreamBuilder<List<CheckinModel>>(
+              stream: _todayCheckinsStream,
+              builder: (context, todaySnap) {
+                if (todaySnap.hasError) {
+                  return _ErrorView(
+                    message: '오늘 인증을 불러오지 못했어요\n${todaySnap.error}',
+                    onRetry: _reload,
+                  );
+                }
+                if (todaySnap.connectionState == ConnectionState.waiting &&
+                    !todaySnap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final todayCheckins =
+                    todaySnap.data ?? const <CheckinModel>[];
+                return _GroupContent(
+                  data: baseSnap.data!,
+                  todayCheckins: todayCheckins,
+                  reactions: GroupsScreen._reactions,
+                  onReactionTap: _onReactionTap,
+                  onCheckinTap: _goToCheckin,
+                );
+              },
             );
           },
         ),
@@ -133,14 +144,14 @@ class _MemberView {
 class _GroupContent extends StatelessWidget {
   const _GroupContent({
     required this.data,
-    required this.store,
+    required this.todayCheckins,
     required this.reactions,
     required this.onReactionTap,
     required this.onCheckinTap,
   });
 
   final _GroupData data;
-  final CheckinsStore store;
+  final List<CheckinModel> todayCheckins;
   final List<_Reaction> reactions;
   final ValueChanged<_Reaction> onReactionTap;
   final VoidCallback onCheckinTap;
@@ -151,10 +162,8 @@ class _GroupContent extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     final group = data.group;
-    final completedUserIds = store.todayGroupCheckins
-        .where((c) => c.groupId == group.id)
-        .map((c) => c.userId)
-        .toSet();
+    final completedUserIds =
+        todayCheckins.map((c) => c.userId).toSet();
 
     bool isUserCompleted(UserModel u) {
       if (completedUserIds.contains(u.id)) return true;

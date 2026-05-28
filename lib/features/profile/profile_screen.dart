@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/firestore_repository.dart';
-import '../../data/stores/checkins_scope.dart';
-import '../../data/stores/checkins_store.dart';
 import '../../data/utils/streak.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -20,11 +19,14 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
   late Future<_ProfileData> _futureData;
+  late Stream<List<CheckinModel>> _userCheckinsStream;
 
   @override
   void initState() {
     super.initState();
     _futureData = _loadProfileData();
+    _userCheckinsStream =
+        _repository.watchUserCheckins(ProfileScreen._userId);
   }
 
   Future<_ProfileData> _loadProfileData() async {
@@ -53,7 +55,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final store = CheckinsScope.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -64,28 +65,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: SafeArea(
         child: FutureBuilder<_ProfileData>(
           future: _futureData,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done ||
-                store.isLoading) {
+          builder: (context, baseSnap) {
+            if (baseSnap.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snapshot.hasError) {
+            if (baseSnap.hasError) {
               return _ErrorView(
-                message: '프로필을 불러오지 못했어요\n${snapshot.error}',
+                message: '프로필을 불러오지 못했어요\n${baseSnap.error}',
                 onRetry: _reload,
               );
             }
-            if (store.error != null) {
-              return _ErrorView(
-                message: '인증 기록을 불러오지 못했어요\n${store.error}',
-                onRetry: store.load,
-              );
-            }
-            return _ProfileContent(
-              data: snapshot.data!,
-              store: store,
-              description: ProfileScreen._profileDescription,
-              onSettingTap: _showComingSoon,
+            return StreamBuilder<List<CheckinModel>>(
+              stream: _userCheckinsStream,
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return _ErrorView(
+                    message: '인증 기록을 불러오지 못했어요\n${snap.error}',
+                    onRetry: _reload,
+                  );
+                }
+                if (snap.connectionState == ConnectionState.waiting &&
+                    !snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final checkins = snap.data ?? const <CheckinModel>[];
+                return _ProfileContent(
+                  data: baseSnap.data!,
+                  userCheckins: checkins,
+                  description: ProfileScreen._profileDescription,
+                  onSettingTap: _showComingSoon,
+                );
+              },
             );
           },
         ),
@@ -107,13 +117,13 @@ class _ProfileData {
 class _ProfileContent extends StatelessWidget {
   const _ProfileContent({
     required this.data,
-    required this.store,
+    required this.userCheckins,
     required this.description,
     required this.onSettingTap,
   });
 
   final _ProfileData data;
-  final CheckinsStore store;
+  final List<CheckinModel> userCheckins;
   final String description;
   final ValueChanged<String> onSettingTap;
 
@@ -124,7 +134,7 @@ class _ProfileContent extends StatelessWidget {
 
     final user = data.user;
     final nickname = user.nickname.isEmpty ? user.id : user.nickname;
-    final streakDays = computeCurrentStreak(store.userCheckins);
+    final streakDays = computeCurrentStreak(userCheckins);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
