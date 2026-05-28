@@ -161,12 +161,7 @@ class FirestoreRepository {
         .collection('users')
         .doc(uid)
         .snapshots()
-        .map((doc) {
-          debugPrint(
-            '[Firestore] watchUser success (exists: ${doc.exists})',
-          );
-          return doc.exists ? UserModel.fromFirestore(doc) : null;
-        })
+        .map((doc) => doc.exists ? UserModel.fromFirestore(doc) : null)
         .transform(_swallowAuthTransitionErrors<UserModel?>(
           'watchUser',
           null,
@@ -368,12 +363,7 @@ class FirestoreRepository {
         .where('date', isEqualTo: today)
         .where('status', isEqualTo: 'completed')
         .snapshots()
-        .map((snap) {
-          debugPrint(
-            '[Firestore] watchTodayCheckins success (${snap.docs.length} docs)',
-          );
-          return snap.docs.map(CheckinModel.fromFirestore).toList();
-        })
+        .map((snap) => snap.docs.map(CheckinModel.fromFirestore).toList())
         .transform(_swallowAuthTransitionErrors<List<CheckinModel>>(
           'watchTodayCheckins',
           const <CheckinModel>[],
@@ -394,9 +384,6 @@ class FirestoreRepository {
         .where('status', isEqualTo: 'completed')
         .snapshots()
         .map((snap) {
-          debugPrint(
-            '[Firestore] watchUserCheckins success (${snap.docs.length} docs)',
-          );
           final list = snap.docs.map(CheckinModel.fromFirestore).toList();
           list.sort((a, b) => b.date.compareTo(a.date));
           return list;
@@ -429,14 +416,9 @@ class FirestoreRepository {
         .where('status', isEqualTo: 'completed')
         .limit(1)
         .snapshots()
-        .map((snap) {
-          debugPrint(
-            '[Firestore] watchUserTodayCheckin success (${snap.docs.length} docs)',
-          );
-          return snap.docs.isEmpty
-              ? null
-              : CheckinModel.fromFirestore(snap.docs.first);
-        })
+        .map((snap) => snap.docs.isEmpty
+            ? null
+            : CheckinModel.fromFirestore(snap.docs.first))
         .transform(_swallowAuthTransitionErrors<CheckinModel?>(
           'watchUserTodayCheckin',
           null,
