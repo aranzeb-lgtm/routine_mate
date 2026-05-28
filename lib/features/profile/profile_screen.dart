@@ -54,6 +54,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
   }
 
+  Future<void> _editRoutineTime(String currentRoutineTime) async {
+    final initial = _parseHhmm(currentRoutineTime);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+    );
+    if (picked == null || !mounted) return;
+
+    final formatted = _formatHhmm(picked);
+    try {
+      await _repository.updateRoutineTime(_userId, formatted);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('알림 시간이 변경됐어요'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      _reload();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('저장에 실패했어요: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  TimeOfDay _parseHhmm(String hhmm) {
+    final parts = hhmm.split(':');
+    final hour = parts.length >= 2 ? (int.tryParse(parts[0]) ?? 22) : 22;
+    final minute = parts.length >= 2 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    return TimeOfDay(
+      hour: hour.clamp(0, 23),
+      minute: minute.clamp(0, 59),
+    );
+  }
+
+  String _formatHhmm(TimeOfDay t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
   Future<void> _editNickname(String currentNickname) async {
     final didSave = await showDialog<bool>(
       context: context,
@@ -118,6 +168,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   description: ProfileScreen._profileDescription,
                   onSettingTap: _showComingSoon,
                   onEditNickname: _editNickname,
+                  onEditRoutineTime: _editRoutineTime,
                 );
               },
             );
@@ -145,6 +196,7 @@ class _ProfileContent extends StatelessWidget {
     required this.description,
     required this.onSettingTap,
     required this.onEditNickname,
+    required this.onEditRoutineTime,
   });
 
   final _ProfileData data;
@@ -152,6 +204,7 @@ class _ProfileContent extends StatelessWidget {
   final String description;
   final ValueChanged<String> onSettingTap;
   final ValueChanged<String> onEditNickname;
+  final ValueChanged<String> onEditRoutineTime;
 
   @override
   Widget build(BuildContext context) {
@@ -202,7 +255,7 @@ class _ProfileContent extends StatelessWidget {
               _SettingsItem(
                 icon: Icons.notifications_outlined,
                 label: '알림 설정',
-                onTap: () => onSettingTap('알림 설정'),
+                onTap: () => onEditRoutineTime(user.routineTime),
               ),
               _SettingsItem(
                 icon: Icons.edit_outlined,

@@ -25,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final AuthRepository _auth = AuthRepository();
   late final String _userId;
   late Future<_HomeBaseData> _futureData;
+  late Stream<UserModel?> _userStream;
   late Stream<List<CheckinModel>> _todayGroupCheckinsStream;
   late Stream<List<CheckinModel>> _userCheckinsStream;
 
@@ -33,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _userId = _auth.currentUserId!;
     _futureData = _loadBaseData();
+    _userStream = _repository.watchUser(_userId);
     _todayGroupCheckinsStream =
         _repository.watchTodayCheckins(HomeScreen._groupId);
     _userCheckinsStream = _repository.watchUserCheckins(_userId);
@@ -57,18 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
       errors.add('그룹: ${_describeError(e)}');
     }
 
-    UserModel? user;
-    try {
-      user = await _repository.getUser(_userId);
-    } catch (e) {
-      debugPrint('[Home] getUser failed: $e');
-      errors.add('사용자: ${_describeError(e)}');
-    }
-
     return _HomeBaseData(
       routine: routine,
       group: group,
-      user: user,
       errors: errors,
     );
   }
@@ -106,48 +99,64 @@ class _HomeScreenState extends State<HomeScreen> {
                 const _HomeBaseData(
                   routine: null,
                   group: null,
-                  user: null,
                   errors: ['데이터 로드 실패'],
                 );
 
-            return StreamBuilder<List<CheckinModel>>(
-              stream: _todayGroupCheckinsStream,
-              builder: (context, todaySnap) {
-                if (todaySnap.connectionState == ConnectionState.waiting &&
-                    !todaySnap.hasData) {
+            return StreamBuilder<UserModel?>(
+              stream: _userStream,
+              builder: (context, userDocSnap) {
+                if (userDocSnap.connectionState == ConnectionState.waiting &&
+                    !userDocSnap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final todayCheckins =
-                    todaySnap.data ?? const <CheckinModel>[];
-                final todayCheckinsError = todaySnap.error;
+                final user = userDocSnap.data;
+                final userDocError = userDocSnap.error;
 
                 return StreamBuilder<List<CheckinModel>>(
-                  stream: _userCheckinsStream,
-                  builder: (context, userSnap) {
-                    if (userSnap.connectionState ==
-                            ConnectionState.waiting &&
-                        !userSnap.hasData) {
+                  stream: _todayGroupCheckinsStream,
+                  builder: (context, todaySnap) {
+                    if (todaySnap.connectionState == ConnectionState.waiting &&
+                        !todaySnap.hasData) {
                       return const Center(
                         child: CircularProgressIndicator(),
                       );
                     }
-                    final userCheckins =
-                        userSnap.data ?? const <CheckinModel>[];
-                    final extraErrors = <String>[
-                      ...base.errors,
-                      if (todayCheckinsError != null)
-                        '오늘 인증: ${_describeError(todayCheckinsError)}',
-                      if (userSnap.error != null)
-                        '내 인증 기록: ${_describeError(userSnap.error!)}',
-                    ];
+                    final todayCheckins =
+                        todaySnap.data ?? const <CheckinModel>[];
+                    final todayCheckinsError = todaySnap.error;
 
-                    return _HomeContent(
-                      data: base,
-                      todayCheckins: todayCheckins,
-                      userCheckins: userCheckins,
-                      errors: extraErrors,
-                      onCheckinPressed: _handleCheckin,
-                      onRetry: _reload,
+                    return StreamBuilder<List<CheckinModel>>(
+                      stream: _userCheckinsStream,
+                      builder: (context, userCheckinsSnap) {
+                        if (userCheckinsSnap.connectionState ==
+                                ConnectionState.waiting &&
+                            !userCheckinsSnap.hasData) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        final userCheckins =
+                            userCheckinsSnap.data ?? const <CheckinModel>[];
+                        final extraErrors = <String>[
+                          ...base.errors,
+                          if (userDocError != null)
+                            '사용자: ${_describeError(userDocError)}',
+                          if (todayCheckinsError != null)
+                            '오늘 인증: ${_describeError(todayCheckinsError)}',
+                          if (userCheckinsSnap.error != null)
+                            '내 인증 기록: ${_describeError(userCheckinsSnap.error!)}',
+                        ];
+
+                        return _HomeContent(
+                          data: base,
+                          user: user,
+                          todayCheckins: todayCheckins,
+                          userCheckins: userCheckins,
+                          errors: extraErrors,
+                          onCheckinPressed: _handleCheckin,
+                          onRetry: _reload,
+                        );
+                      },
                     );
                   },
                 );
@@ -171,19 +180,18 @@ class _HomeBaseData {
   const _HomeBaseData({
     required this.routine,
     required this.group,
-    required this.user,
     required this.errors,
   });
 
   final RoutineModel? routine;
   final GroupModel? group;
-  final UserModel? user;
   final List<String> errors;
 }
 
 class _HomeContent extends StatelessWidget {
   const _HomeContent({
     required this.data,
+    required this.user,
     required this.todayCheckins,
     required this.userCheckins,
     required this.errors,
@@ -192,6 +200,7 @@ class _HomeContent extends StatelessWidget {
   });
 
   final _HomeBaseData data;
+  final UserModel? user;
   final List<CheckinModel> todayCheckins;
   final List<CheckinModel> userCheckins;
   final List<String> errors;
@@ -205,7 +214,7 @@ class _HomeContent extends StatelessWidget {
 
     final routineName = data.routine?.routineName ?? '퇴근 후 스트레칭';
     final durationMinutes = data.routine?.durationMinutes ?? 10;
-    final scheduledTime = data.user?.routineTime ?? '22:00';
+    final scheduledTime = user?.routineTime ?? '22:00';
 
     final totalMembers = data.group?.memberCount ?? 5;
     final completedMembers =

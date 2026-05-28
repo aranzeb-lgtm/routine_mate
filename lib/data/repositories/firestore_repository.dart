@@ -143,6 +143,40 @@ class FirestoreRepository {
     }
   }
 
+  Future<void> updateRoutineTime(String uid, String routineTime) async {
+    debugPrint(
+      '[Firestore] updateRoutineTime start (uid: $uid, routineTime: $routineTime)',
+    );
+    try {
+      await _db.collection('users').doc(uid).set({
+        'routineTime': routineTime,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      debugPrint('[Firestore] updateRoutineTime success');
+    } catch (e, stackTrace) {
+      _logFirestoreError('updateRoutineTime', e, stackTrace);
+      rethrow;
+    }
+  }
+
+  Stream<UserModel?> watchUser(String uid) {
+    debugPrint('[Firestore] watchUser start (uid: $uid)');
+    return _db
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .map((doc) {
+          debugPrint(
+            '[Firestore] watchUser success (exists: ${doc.exists})',
+          );
+          return doc.exists ? UserModel.fromFirestore(doc) : null;
+        })
+        .handleError((Object e, StackTrace stackTrace) {
+          _logFirestoreError('watchUser', e, stackTrace);
+          throw e;
+        });
+  }
+
   Future<void> updateNickname(String uid, String nickname) async {
     debugPrint(
       '[Firestore] updateNickname start (uid: $uid, nickname: $nickname)',
