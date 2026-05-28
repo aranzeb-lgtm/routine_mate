@@ -143,6 +143,22 @@ class FirestoreRepository {
     }
   }
 
+  Future<void> updateNickname(String uid, String nickname) async {
+    debugPrint(
+      '[Firestore] updateNickname start (uid: $uid, nickname: $nickname)',
+    );
+    try {
+      await _db.collection('users').doc(uid).set({
+        'nickname': nickname,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      debugPrint('[Firestore] updateNickname success');
+    } catch (e, stackTrace) {
+      _logFirestoreError('updateNickname', e, stackTrace);
+      rethrow;
+    }
+  }
+
   Future<UserModel> getUser(String userId) async {
     debugPrint('[Firestore] getUser start (uid: $userId)');
     try {

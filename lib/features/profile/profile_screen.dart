@@ -54,6 +54,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
   }
 
+  Future<void> _editNickname(String currentNickname) async {
+    final didSave = await showDialog<bool>(
+      context: context,
+      builder: (_) => _NicknameDialog(
+        currentNickname: currentNickname,
+        userId: _userId,
+        repository: _repository,
+      ),
+    );
+    if (!mounted || didSave != true) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('닉네임이 변경됐어요'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -96,6 +117,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   userCheckins: checkins,
                   description: ProfileScreen._profileDescription,
                   onSettingTap: _showComingSoon,
+                  onEditNickname: _editNickname,
                 );
               },
             );
@@ -122,12 +144,14 @@ class _ProfileContent extends StatelessWidget {
     required this.userCheckins,
     required this.description,
     required this.onSettingTap,
+    required this.onEditNickname,
   });
 
   final _ProfileData data;
   final List<CheckinModel> userCheckins;
   final String description;
   final ValueChanged<String> onSettingTap;
+  final ValueChanged<String> onEditNickname;
 
   @override
   Widget build(BuildContext context) {
@@ -183,7 +207,7 @@ class _ProfileContent extends StatelessWidget {
               _SettingsItem(
                 icon: Icons.edit_outlined,
                 label: '닉네임 수정',
-                onTap: () => onSettingTap('닉네임 수정'),
+                onTap: () => onEditNickname(nickname),
               ),
               _SettingsItem(
                 icon: Icons.logout_rounded,
@@ -583,6 +607,121 @@ class _SettingsTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _NicknameDialog extends StatefulWidget {
+  const _NicknameDialog({
+    required this.currentNickname,
+    required this.userId,
+    required this.repository,
+  });
+
+  final String currentNickname;
+  final String userId;
+  final FirestoreRepository repository;
+
+  @override
+  State<_NicknameDialog> createState() => _NicknameDialogState();
+}
+
+class _NicknameDialogState extends State<_NicknameDialog> {
+  late final TextEditingController _controller;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.currentNickname);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onSave() async {
+    if (_isSaving) return;
+    final newNickname = _controller.text.trim();
+    if (newNickname.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('닉네임을 입력해주세요'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      await widget.repository.updateNickname(widget.userId, newNickname);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('저장에 실패했어요: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: const Text('닉네임 수정'),
+      content: TextField(
+        controller: _controller,
+        enabled: !_isSaving,
+        autofocus: true,
+        maxLength: 20,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _onSave(),
+        decoration: InputDecoration(
+          labelText: '닉네임',
+          hintText: '새 닉네임을 입력해주세요',
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: colorScheme.primary,
+              width: 1.5,
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed:
+              _isSaving ? null : () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: _isSaving ? null : _onSave,
+          child: _isSaving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('저장'),
+        ),
+      ],
     );
   }
 }
