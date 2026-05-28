@@ -8,7 +8,9 @@ import '../../data/repositories/firestore_repository.dart';
 import '../../data/utils/streak.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, required this.currentUid});
+
+  final String currentUid;
 
   static const String _profileDescription = '오늘도 루틴을 이어가는 중이에요';
 
@@ -19,14 +21,14 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
   final AuthRepository _auth = AuthRepository();
-  late final String _userId;
   late Future<_ProfileData> _futureData;
   late Stream<List<CheckinModel>> _userCheckinsStream;
+
+  String get _userId => widget.currentUid;
 
   @override
   void initState() {
     super.initState();
-    _userId = _auth.currentUserId!;
     _futureData = _loadProfileData();
     _userCheckinsStream = _repository.watchUserCheckins(_userId);
   }
@@ -49,6 +51,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ..showSnackBar(
         SnackBar(
           content: Text('$label 기능은 준비 중입니다'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  Future<void> _handleLogout() async {
+    final didLogout = await showDialog<bool>(
+      context: context,
+      builder: (_) => _LogoutDialog(auth: _auth),
+    );
+    if (!context.mounted || didLogout != true) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('로그아웃됐어요'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -169,6 +187,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onSettingTap: _showComingSoon,
                   onEditNickname: _editNickname,
                   onEditRoutineTime: _editRoutineTime,
+                  onLogout: _handleLogout,
                 );
               },
             );
@@ -197,6 +216,7 @@ class _ProfileContent extends StatelessWidget {
     required this.onSettingTap,
     required this.onEditNickname,
     required this.onEditRoutineTime,
+    required this.onLogout,
   });
 
   final _ProfileData data;
@@ -205,6 +225,7 @@ class _ProfileContent extends StatelessWidget {
   final ValueChanged<String> onSettingTap;
   final ValueChanged<String> onEditNickname;
   final ValueChanged<String> onEditRoutineTime;
+  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +287,7 @@ class _ProfileContent extends StatelessWidget {
                 icon: Icons.logout_rounded,
                 label: '로그아웃',
                 isDestructive: true,
-                onTap: () => onSettingTap('로그아웃'),
+                onTap: onLogout,
               ),
             ],
           ),
@@ -660,6 +681,77 @@ class _SettingsTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _LogoutDialog extends StatefulWidget {
+  const _LogoutDialog({required this.auth});
+
+  final AuthRepository auth;
+
+  @override
+  State<_LogoutDialog> createState() => _LogoutDialogState();
+}
+
+class _LogoutDialogState extends State<_LogoutDialog> {
+  bool _isLoading = false;
+
+  Future<void> _onLogout() async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+    try {
+      await widget.auth.signOut();
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('로그아웃에 실패했어요: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: const Text('로그아웃할까요?'),
+      content: const Text(
+        '현재 임시 계정에서 로그아웃됩니다. '
+        '다시 시작하면 새 임시 계정으로 로그인될 수 있어요.',
+      ),
+      actions: [
+        TextButton(
+          onPressed:
+              _isLoading ? null : () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: _isLoading ? null : _onLogout,
+          style: FilledButton.styleFrom(
+            backgroundColor: colorScheme.error,
+            foregroundColor: colorScheme.onError,
+          ),
+          child: _isLoading
+              ? SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: colorScheme.onError,
+                  ),
+                )
+              : const Text('로그아웃'),
+        ),
+      ],
     );
   }
 }

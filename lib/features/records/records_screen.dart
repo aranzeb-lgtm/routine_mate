@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
-import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 
 class RecordsScreen extends StatefulWidget {
-  const RecordsScreen({super.key});
+  const RecordsScreen({super.key, required this.currentUid});
+
+  final String currentUid;
 
   @override
   State<RecordsScreen> createState() => _RecordsScreenState();
@@ -13,14 +14,13 @@ class RecordsScreen extends StatefulWidget {
 
 class _RecordsScreenState extends State<RecordsScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
-  final AuthRepository _auth = AuthRepository();
-  late final String _userId;
   late Stream<List<CheckinModel>> _stream;
+
+  String get _userId => widget.currentUid;
 
   @override
   void initState() {
     super.initState();
-    _userId = _auth.currentUserId!;
     _stream = _repository.watchUserCheckins(_userId);
   }
 

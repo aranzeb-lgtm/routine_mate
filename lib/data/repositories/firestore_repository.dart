@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/checkin_model.dart';
@@ -19,6 +22,32 @@ class FirestoreRepository {
       debugPrint('[Firestore] FirebaseException code: ${e.code}');
       debugPrint('[Firestore] FirebaseException message: ${e.message}');
     }
+  }
+
+  bool _isAuthTransitionError(Object e) {
+    return e is FirebaseException &&
+        e.code == 'permission-denied' &&
+        FirebaseAuth.instance.currentUser == null;
+  }
+
+  StreamTransformer<T, T> _swallowAuthTransitionErrors<T>(
+    String fn,
+    T fallback,
+  ) {
+    return StreamTransformer<T, T>.fromHandlers(
+      handleData: (data, sink) => sink.add(data),
+      handleError: (error, stackTrace, sink) {
+        if (_isAuthTransitionError(error)) {
+          debugPrint(
+            '[Firestore] $fn permission-denied during auth transition (currentUser=null), swallowing',
+          );
+          sink.add(fallback);
+          return;
+        }
+        _logFirestoreError(fn, error, stackTrace);
+        sink.addError(error, stackTrace);
+      },
+    );
   }
 
   Future<RoutineModel> getRoutine(String routineId) async {
@@ -74,6 +103,7 @@ class FirestoreRepository {
         }, SetOptions(merge: true));
       }
       debugPrint('[Firestore] ensureUserDocument success');
+      debugPrint('User document ready: $uid');
     } catch (e, stackTrace) {
       _logFirestoreError('ensureUserDocument', e, stackTrace);
       rethrow;
@@ -83,63 +113,25 @@ class FirestoreRepository {
   Future<void> ensureBaseDocuments(String uid) async {
     debugPrint('[Firestore] ensureBaseDocuments start (uid: $uid)');
     try {
-      final routineRef = _db.collection('routines').doc('routine_001');
-      final routineSnap = await routineRef.get();
-      if (!routineSnap.exists) {
-        debugPrint('[Firestore] Creating routines/routine_001');
-        await routineRef.set({
-          'routineName': '퇴근 후 스트레칭',
-          'routineType': 'stretching',
-          'durationMinutes': 10,
-          'description': '목과 어깨를 가볍게 풀어주는 루틴',
-          'difficulty': 'easy',
-          'createdAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
+      final routineSnap =
+          await _db.collection('routines').doc('routine_001').get();
+      debugPrint(
+        '[Firestore] routines/routine_001 exists: ${routineSnap.exists}',
+      );
 
-      final groupRef = _db.collection('groups').doc('group_001');
-      final groupSnap = await groupRef.get();
-      if (!groupSnap.exists) {
-        debugPrint('[Firestore] Creating groups/group_001');
-        await groupRef.set({
-          'groupName': '퇴근 후 스트레칭 그룹',
-          'description': '퇴근 후 10분, 같이 몸을 풀어요',
-          'routineType': 'stretching',
-          'routineTime': '22:00',
-          'maxMembers': 5,
-          'memberIds': [uid],
-          'todayCompletedCount': 0,
-          'isActive': true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      } else {
-        final data = groupSnap.data() ?? <String, dynamic>{};
-        final memberIds = (data['memberIds'] as List<dynamic>? ?? <dynamic>[])
-            .map((e) => e.toString())
-            .toList();
-        if (!memberIds.contains(uid)) {
-          debugPrint('[Firestore] Adding $uid to group_001.memberIds');
-          await groupRef.set({
-            'memberIds': FieldValue.arrayUnion([uid]),
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        }
-      }
-      debugPrint('[Firestore] ensureBaseDocuments success');
-    } on FirebaseException catch (e, stackTrace) {
-      _logFirestoreError('ensureBaseDocuments', e, stackTrace);
-      if (e.code == 'permission-denied') {
-        debugPrint(
-          '[Firestore] ensureBaseDocuments skipped due to permission-denied. '
-          'Base docs may need to be created manually in Firebase Console.',
-        );
-        return;
-      }
-      rethrow;
+      final groupSnap =
+          await _db.collection('groups').doc('group_001').get();
+      debugPrint(
+        '[Firestore] groups/group_001 exists: ${groupSnap.exists}',
+      );
+
+      debugPrint('Base documents checked');
     } catch (e, stackTrace) {
       _logFirestoreError('ensureBaseDocuments', e, stackTrace);
-      rethrow;
+      debugPrint(
+        '[Firestore] ensureBaseDocuments failed but app will continue. '
+        'Base docs may need to be created manually in Firebase Console.',
+      );
     }
   }
 
@@ -160,6 +152,10 @@ class FirestoreRepository {
   }
 
   Stream<UserModel?> watchUser(String uid) {
+    if (uid.isEmpty) {
+      debugPrint('[Firestore] watchUser: empty uid, returning empty stream');
+      return Stream<UserModel?>.value(null);
+    }
     debugPrint('[Firestore] watchUser start (uid: $uid)');
     return _db
         .collection('users')
@@ -171,10 +167,10 @@ class FirestoreRepository {
           );
           return doc.exists ? UserModel.fromFirestore(doc) : null;
         })
-        .handleError((Object e, StackTrace stackTrace) {
-          _logFirestoreError('watchUser', e, stackTrace);
-          throw e;
-        });
+        .transform(_swallowAuthTransitionErrors<UserModel?>(
+          'watchUser',
+          null,
+        ));
   }
 
   Future<void> updateNickname(String uid, String nickname) async {
@@ -358,6 +354,12 @@ class FirestoreRepository {
   }
 
   Stream<List<CheckinModel>> watchTodayCheckins(String groupId) {
+    if (groupId.isEmpty) {
+      debugPrint(
+        '[Firestore] watchTodayCheckins: empty groupId, returning empty stream',
+      );
+      return Stream<List<CheckinModel>>.value(const <CheckinModel>[]);
+    }
     debugPrint('[Firestore] watchTodayCheckins start (group: $groupId)');
     final today = _todayDateString();
     return _db
@@ -372,13 +374,19 @@ class FirestoreRepository {
           );
           return snap.docs.map(CheckinModel.fromFirestore).toList();
         })
-        .handleError((Object e, StackTrace stackTrace) {
-          _logFirestoreError('watchTodayCheckins', e, stackTrace);
-          throw e;
-        });
+        .transform(_swallowAuthTransitionErrors<List<CheckinModel>>(
+          'watchTodayCheckins',
+          const <CheckinModel>[],
+        ));
   }
 
   Stream<List<CheckinModel>> watchUserCheckins(String userId) {
+    if (userId.isEmpty) {
+      debugPrint(
+        '[Firestore] watchUserCheckins: empty uid, returning empty stream',
+      );
+      return Stream<List<CheckinModel>>.value(const <CheckinModel>[]);
+    }
     debugPrint('[Firestore] watchUserCheckins start (uid: $userId)');
     return _db
         .collection('checkins')
@@ -393,16 +401,22 @@ class FirestoreRepository {
           list.sort((a, b) => b.date.compareTo(a.date));
           return list;
         })
-        .handleError((Object e, StackTrace stackTrace) {
-          _logFirestoreError('watchUserCheckins', e, stackTrace);
-          throw e;
-        });
+        .transform(_swallowAuthTransitionErrors<List<CheckinModel>>(
+          'watchUserCheckins',
+          const <CheckinModel>[],
+        ));
   }
 
   Stream<CheckinModel?> watchUserTodayCheckin(
     String userId,
     String groupId,
   ) {
+    if (userId.isEmpty || groupId.isEmpty) {
+      debugPrint(
+        '[Firestore] watchUserTodayCheckin: empty uid/groupId, returning empty stream',
+      );
+      return Stream<CheckinModel?>.value(null);
+    }
     debugPrint(
       '[Firestore] watchUserTodayCheckin start (uid: $userId, group: $groupId)',
     );
@@ -423,10 +437,10 @@ class FirestoreRepository {
               ? null
               : CheckinModel.fromFirestore(snap.docs.first);
         })
-        .handleError((Object e, StackTrace stackTrace) {
-          _logFirestoreError('watchUserTodayCheckin', e, stackTrace);
-          throw e;
-        });
+        .transform(_swallowAuthTransitionErrors<CheckinModel?>(
+          'watchUserTodayCheckin',
+          null,
+        ));
   }
 
   String _todayDateString() {

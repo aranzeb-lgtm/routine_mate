@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/user_model.dart';
-import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 import '../checkin/checkin_screen.dart';
 
 class GroupsScreen extends StatefulWidget {
-  const GroupsScreen({super.key});
+  const GroupsScreen({super.key, required this.currentUid});
+
+  final String currentUid;
 
   static const String _groupId = 'group_001';
 
@@ -25,15 +26,14 @@ class GroupsScreen extends StatefulWidget {
 
 class _GroupsScreenState extends State<GroupsScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
-  final AuthRepository _auth = AuthRepository();
-  late final String _userId;
   late Future<_GroupData> _futureData;
   late Stream<List<CheckinModel>> _todayCheckinsStream;
+
+  String get _userId => widget.currentUid;
 
   @override
   void initState() {
     super.initState();
-    _userId = _auth.currentUserId!;
     _futureData = _loadGroupData();
     _todayCheckinsStream =
         _repository.watchTodayCheckins(GroupsScreen._groupId);
@@ -86,7 +86,9 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
   Future<void> _goToCheckin() async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CheckinScreen()),
+      MaterialPageRoute(
+        builder: (_) => CheckinScreen(currentUid: _userId),
+      ),
     );
   }
 

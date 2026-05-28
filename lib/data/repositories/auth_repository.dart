@@ -30,5 +30,9 @@ class AuthRepository {
     return user.uid;
   }
 
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    debugPrint('[Auth] signOut start');
+    await _auth.signOut();
+    debugPrint('[Auth] signOut success');
+  }
 }

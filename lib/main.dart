@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import 'app/routine_mate_app.dart';
-import 'data/repositories/auth_repository.dart';
-import 'data/repositories/firestore_repository.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -13,12 +11,6 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-
-    final user = await AuthRepository().signInAnonymouslyIfNeeded();
-    final firestore = FirestoreRepository();
-    await firestore.ensureUserDocument(user.uid);
-    await firestore.ensureBaseDocuments(user.uid);
-
     runApp(const RoutineMateApp());
   } catch (e, stackTrace) {
     debugPrint('Initialization failed: $e\n$stackTrace');

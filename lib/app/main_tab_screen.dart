@@ -6,7 +6,9 @@ import '../features/profile/profile_screen.dart';
 import '../features/records/records_screen.dart';
 
 class MainTabScreen extends StatefulWidget {
-  const MainTabScreen({super.key});
+  const MainTabScreen({super.key, required this.currentUid});
+
+  final String currentUid;
 
   @override
   State<MainTabScreen> createState() => _MainTabScreenState();
@@ -15,12 +17,11 @@ class MainTabScreen extends StatefulWidget {
 class _MainTabScreenState extends State<MainTabScreen> {
   int _currentIndex = 0;
 
-  static const List<Widget> _screens = [
-    HomeScreen(),
-    GroupsScreen(),
-    RecordsScreen(),
-    ProfileScreen(),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    debugPrint('[App] building app with uid: ${widget.currentUid}');
+  }
 
   void _onTabTapped(int index) {
     setState(() {
@@ -30,10 +31,18 @@ class _MainTabScreenState extends State<MainTabScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final uid = widget.currentUid;
+    final screens = <Widget>[
+      HomeScreen(currentUid: uid),
+      GroupsScreen(currentUid: uid),
+      RecordsScreen(currentUid: uid),
+      ProfileScreen(currentUid: uid),
+    ];
+
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: screens,
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,

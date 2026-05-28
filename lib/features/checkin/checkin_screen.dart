@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
-import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 
 class CheckinScreen extends StatefulWidget {
-  const CheckinScreen({super.key});
+  const CheckinScreen({super.key, required this.currentUid});
+
+  final String currentUid;
 
   static const String _groupId = 'group_001';
   static const String _routineId = 'routine_001';
@@ -17,16 +18,15 @@ class CheckinScreen extends StatefulWidget {
 class _CheckinScreenState extends State<CheckinScreen> {
   final TextEditingController _memoController = TextEditingController();
   final FirestoreRepository _repository = FirestoreRepository();
-  final AuthRepository _auth = AuthRepository();
-  late final String _userId;
   late final Stream<CheckinModel?> _todayCheckinStream;
 
   bool _isSaving = false;
 
+  String get _userId => widget.currentUid;
+
   @override
   void initState() {
     super.initState();
-    _userId = _auth.currentUserId!;
     _todayCheckinStream = _repository.watchUserTodayCheckin(
       _userId,
       CheckinScreen._groupId,

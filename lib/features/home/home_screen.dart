@@ -5,13 +5,14 @@ import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/routine_model.dart';
 import '../../data/models/user_model.dart';
-import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 import '../../data/utils/streak.dart';
 import '../checkin/checkin_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, required this.currentUid});
+
+  final String currentUid;
 
   static const String _routineId = 'routine_001';
   static const String _groupId = 'group_001';
@@ -22,17 +23,16 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
-  final AuthRepository _auth = AuthRepository();
-  late final String _userId;
   late Future<_HomeBaseData> _futureData;
   late Stream<UserModel?> _userStream;
   late Stream<List<CheckinModel>> _todayGroupCheckinsStream;
   late Stream<List<CheckinModel>> _userCheckinsStream;
 
+  String get _userId => widget.currentUid;
+
   @override
   void initState() {
     super.initState();
-    _userId = _auth.currentUserId!;
     _futureData = _loadBaseData();
     _userStream = _repository.watchUser(_userId);
     _todayGroupCheckinsStream =
@@ -74,7 +74,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _handleCheckin() async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CheckinScreen()),
+      MaterialPageRoute(
+        builder: (_) => CheckinScreen(currentUid: _userId),
+      ),
     );
   }
 
