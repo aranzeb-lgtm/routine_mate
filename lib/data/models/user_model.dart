@@ -19,6 +19,18 @@ class UserModel {
   final int streakCount;
   final List<String> joinedGroupIds;
 
+  factory UserModel.unknown(String id) {
+    return UserModel(
+      id: id,
+      uid: id,
+      nickname: '알 수 없는 사용자',
+      email: '',
+      routineTime: '',
+      streakCount: 0,
+      joinedGroupIds: const [],
+    );
+  }
+
   factory UserModel.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {

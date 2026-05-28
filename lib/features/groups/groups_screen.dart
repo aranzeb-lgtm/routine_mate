@@ -1,8 +1,10 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
 import '../../data/models/group_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/firestore_repository.dart';
 import '../checkin/checkin_screen.dart';
 
@@ -23,21 +25,46 @@ class GroupsScreen extends StatefulWidget {
 
 class _GroupsScreenState extends State<GroupsScreen> {
   final FirestoreRepository _repository = FirestoreRepository();
+  final AuthRepository _auth = AuthRepository();
+  late final String _userId;
   late Future<_GroupData> _futureData;
   late Stream<List<CheckinModel>> _todayCheckinsStream;
 
   @override
   void initState() {
     super.initState();
+    _userId = _auth.currentUserId!;
     _futureData = _loadGroupData();
     _todayCheckinsStream =
         _repository.watchTodayCheckins(GroupsScreen._groupId);
   }
 
   Future<_GroupData> _loadGroupData() async {
-    final group = await _repository.getGroup(GroupsScreen._groupId);
-    final members = await _repository.getGroupMembers(group.memberIds);
-    return _GroupData(group: group, members: members);
+    final errors = <String>[];
+
+    GroupModel? group;
+    try {
+      group = await _repository.getGroup(GroupsScreen._groupId);
+    } catch (e) {
+      debugPrint('[Groups] getGroup failed: $e');
+      errors.add('그룹: ${_describeError(e)}');
+    }
+
+    final baseMemberIds = group?.memberIds ?? const <String>[];
+    final effectiveMemberIds = baseMemberIds.contains(_userId)
+        ? baseMemberIds
+        : [...baseMemberIds, _userId];
+
+    List<UserModel> members = const [];
+    try {
+      members = await _repository.getGroupMembers(effectiveMemberIds);
+    } catch (e) {
+      debugPrint('[Groups] getGroupMembers failed: $e');
+      errors.add('멤버: ${_describeError(e)}');
+      members = [UserModel.unknown(_userId)];
+    }
+
+    return _GroupData(group: group, members: members, errors: errors);
   }
 
   void _reload() {
@@ -80,33 +107,43 @@ class _GroupsScreenState extends State<GroupsScreen> {
             if (baseSnap.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (baseSnap.hasError) {
-              return _ErrorView(
-                message: '그룹 정보를 불러오지 못했어요\n${baseSnap.error}',
+            final data = baseSnap.data;
+            if (data == null) {
+              return _MissingGroupView(
+                errors: ['알 수 없는 오류로 데이터를 불러오지 못했어요'],
                 onRetry: _reload,
               );
             }
+            if (data.group == null) {
+              return _MissingGroupView(
+                errors: data.errors,
+                onRetry: _reload,
+              );
+            }
+
             return StreamBuilder<List<CheckinModel>>(
               stream: _todayCheckinsStream,
               builder: (context, todaySnap) {
-                if (todaySnap.hasError) {
-                  return _ErrorView(
-                    message: '오늘 인증을 불러오지 못했어요\n${todaySnap.error}',
-                    onRetry: _reload,
-                  );
-                }
                 if (todaySnap.connectionState == ConnectionState.waiting &&
                     !todaySnap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final todayCheckins =
                     todaySnap.data ?? const <CheckinModel>[];
+                final allErrors = <String>[
+                  ...data.errors,
+                  if (todaySnap.error != null)
+                    '오늘 인증: ${_describeError(todaySnap.error!)}',
+                ];
                 return _GroupContent(
-                  data: baseSnap.data!,
+                  data: data,
+                  currentUserId: _userId,
                   todayCheckins: todayCheckins,
                   reactions: GroupsScreen._reactions,
+                  errors: allErrors,
                   onReactionTap: _onReactionTap,
                   onCheckinTap: _goToCheckin,
+                  onRetry: _reload,
                 );
               },
             );
@@ -117,14 +154,23 @@ class _GroupsScreenState extends State<GroupsScreen> {
   }
 }
 
+String _describeError(Object e) {
+  if (e is FirebaseException) {
+    return 'FirebaseException(${e.code}): ${e.message ?? '메시지 없음'}';
+  }
+  return '$e';
+}
+
 class _GroupData {
   const _GroupData({
     required this.group,
     required this.members,
+    required this.errors,
   });
 
-  final GroupModel group;
+  final GroupModel? group;
   final List<UserModel> members;
+  final List<String> errors;
 }
 
 class _Reaction {
@@ -141,27 +187,95 @@ class _MemberView {
   final bool isCompleted;
 }
 
-class _GroupContent extends StatelessWidget {
-  const _GroupContent({
-    required this.data,
-    required this.todayCheckins,
-    required this.reactions,
-    required this.onReactionTap,
-    required this.onCheckinTap,
-  });
+class _MissingGroupView extends StatelessWidget {
+  const _MissingGroupView({required this.errors, required this.onRetry});
 
-  final _GroupData data;
-  final List<CheckinModel> todayCheckins;
-  final List<_Reaction> reactions;
-  final ValueChanged<_Reaction> onReactionTap;
-  final VoidCallback onCheckinTap;
+  final List<String> errors;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    final group = data.group;
+    final hasPermissionIssue =
+        errors.any((m) => m.contains('permission-denied'));
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.groups_rounded,
+              size: 56,
+              color: colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              hasPermissionIssue
+                  ? 'Firestore 권한 문제입니다'
+                  : '그룹 데이터가 아직 준비되지 않았어요',
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colorScheme.onSurface,
+              ),
+            ),
+            if (errors.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              for (final e in errors)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    '· $e',
+                    textAlign: TextAlign.center,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 20),
+            FilledButton.tonalIcon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('다시 시도'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupContent extends StatelessWidget {
+  const _GroupContent({
+    required this.data,
+    required this.currentUserId,
+    required this.todayCheckins,
+    required this.reactions,
+    required this.errors,
+    required this.onReactionTap,
+    required this.onCheckinTap,
+    required this.onRetry,
+  });
+
+  final _GroupData data;
+  final String currentUserId;
+  final List<CheckinModel> todayCheckins;
+  final List<_Reaction> reactions;
+  final List<String> errors;
+  final ValueChanged<_Reaction> onReactionTap;
+  final VoidCallback onCheckinTap;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    final group = data.group!;
     final completedUserIds =
         todayCheckins.map((c) => c.userId).toSet();
 
@@ -190,6 +304,10 @@ class _GroupContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (errors.isNotEmpty) ...[
+            _ErrorBanner(errors: errors, onRetry: onRetry),
+            const SizedBox(height: 16),
+          ],
           _GroupHeaderCard(
             name: group.groupName,
             description: group.description,
@@ -239,10 +357,10 @@ class _GroupContent extends StatelessWidget {
   }
 }
 
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.errors, required this.onRetry});
 
-  final String message;
+  final List<String> errors;
   final VoidCallback onRetry;
 
   @override
@@ -250,34 +368,55 @@ class _ErrorView extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.cloud_off_rounded,
-              size: 56,
-              color: colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                height: 1.5,
+    final hasPermissionIssue =
+        errors.any((m) => m.contains('permission-denied'));
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 18,
+                color: colorScheme.onErrorContainer,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hasPermissionIssue
+                      ? 'Firestore 권한 문제입니다'
+                      : '일부 데이터를 불러오지 못해 임시값을 사용 중이에요',
+                  style: textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onRetry,
+                child: const Text('다시 시도'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          for (final e in errors)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '· $e',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onErrorContainer,
+                ),
               ),
             ),
-            const SizedBox(height: 20),
-            FilledButton.tonalIcon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('다시 시도'),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'auth_gate.dart';
+import 'main_tab_screen.dart';
 
 class RoutineMateApp extends StatelessWidget {
   const RoutineMateApp({super.key});
@@ -14,7 +14,7 @@ class RoutineMateApp extends StatelessWidget {
         colorSchemeSeed: Colors.deepPurple,
         useMaterial3: true,
       ),
-      home: const AuthGate(),
+      home: const MainTabScreen(),
     );
   }
 }

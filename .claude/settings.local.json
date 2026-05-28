@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Projects\\\\routine_mate\" -Force | Where-Object { $_.Name -match \"firebase|firestore\" } | Format-List Name, Mode)"
+    ]
+  }
+}

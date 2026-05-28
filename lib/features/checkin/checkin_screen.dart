@@ -63,6 +63,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
         status: 'completed',
       );
 
+      debugPrint('Creating checkin for userId: $_userId');
       await _repository.createCheckin(checkin);
       if (!mounted) return;
       ScaffoldMessenger.of(context)

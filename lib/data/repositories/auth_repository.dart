@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 class AuthRepository {
   AuthRepository({FirebaseAuth? auth})
@@ -14,9 +15,14 @@ class AuthRepository {
 
   Future<User> signInAnonymouslyIfNeeded() async {
     final existing = _auth.currentUser;
-    if (existing != null) return existing;
+    if (existing != null) {
+      debugPrint('Signed in as: ${existing.uid}');
+      return existing;
+    }
     final credential = await _auth.signInAnonymously();
-    return credential.user!;
+    final user = credential.user!;
+    debugPrint('Signed in as: ${user.uid}');
+    return user;
   }
 
   Future<String> requireUserId() async {

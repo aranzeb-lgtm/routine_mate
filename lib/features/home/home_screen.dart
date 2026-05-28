@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/models/checkin_model.dart';
@@ -38,15 +39,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<_HomeBaseData> _loadBaseData() async {
-    final results = await Future.wait([
-      _repository.getRoutine(HomeScreen._routineId),
-      _repository.getGroup(HomeScreen._groupId),
-      _repository.getUser(_userId),
-    ]);
+    final errors = <String>[];
+
+    RoutineModel? routine;
+    try {
+      routine = await _repository.getRoutine(HomeScreen._routineId);
+    } catch (e) {
+      debugPrint('[Home] getRoutine failed: $e');
+      errors.add('루틴: ${_describeError(e)}');
+    }
+
+    GroupModel? group;
+    try {
+      group = await _repository.getGroup(HomeScreen._groupId);
+    } catch (e) {
+      debugPrint('[Home] getGroup failed: $e');
+      errors.add('그룹: ${_describeError(e)}');
+    }
+
+    UserModel? user;
+    try {
+      user = await _repository.getUser(_userId);
+    } catch (e) {
+      debugPrint('[Home] getUser failed: $e');
+      errors.add('사용자: ${_describeError(e)}');
+    }
+
     return _HomeBaseData(
-      routine: results[0] as RoutineModel,
-      group: results[1] as GroupModel,
-      user: results[2] as UserModel,
+      routine: routine,
+      group: group,
+      user: user,
+      errors: errors,
     );
   }
 
@@ -79,50 +102,52 @@ class _HomeScreenState extends State<HomeScreen> {
             if (baseSnap.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (baseSnap.hasError) {
-              return _ErrorView(
-                message: '데이터를 불러오지 못했어요\n${baseSnap.error}',
-                onRetry: _reload,
-              );
-            }
+            final base = baseSnap.data ??
+                const _HomeBaseData(
+                  routine: null,
+                  group: null,
+                  user: null,
+                  errors: ['데이터 로드 실패'],
+                );
+
             return StreamBuilder<List<CheckinModel>>(
               stream: _todayGroupCheckinsStream,
               builder: (context, todaySnap) {
-                if (todaySnap.hasError) {
-                  return _ErrorView(
-                    message: '오늘 인증을 불러오지 못했어요\n${todaySnap.error}',
-                    onRetry: _reload,
-                  );
-                }
                 if (todaySnap.connectionState == ConnectionState.waiting &&
                     !todaySnap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final todayCheckins =
                     todaySnap.data ?? const <CheckinModel>[];
+                final todayCheckinsError = todaySnap.error;
 
                 return StreamBuilder<List<CheckinModel>>(
                   stream: _userCheckinsStream,
                   builder: (context, userSnap) {
-                    if (userSnap.hasError) {
-                      return _ErrorView(
-                        message: '내 인증 기록을 불러오지 못했어요\n${userSnap.error}',
-                        onRetry: _reload,
-                      );
-                    }
                     if (userSnap.connectionState ==
                             ConnectionState.waiting &&
                         !userSnap.hasData) {
-                      return const Center(child: CircularProgressIndicator());
+                      return const Center(
+                        child: CircularProgressIndicator(),
+                      );
                     }
                     final userCheckins =
                         userSnap.data ?? const <CheckinModel>[];
+                    final extraErrors = <String>[
+                      ...base.errors,
+                      if (todayCheckinsError != null)
+                        '오늘 인증: ${_describeError(todayCheckinsError)}',
+                      if (userSnap.error != null)
+                        '내 인증 기록: ${_describeError(userSnap.error!)}',
+                    ];
 
                     return _HomeContent(
-                      data: baseSnap.data!,
+                      data: base,
                       todayCheckins: todayCheckins,
                       userCheckins: userCheckins,
+                      errors: extraErrors,
                       onCheckinPressed: _handleCheckin,
+                      onRetry: _reload,
                     );
                   },
                 );
@@ -135,16 +160,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+String _describeError(Object e) {
+  if (e is FirebaseException) {
+    return 'FirebaseException(${e.code}): ${e.message ?? '메시지 없음'}';
+  }
+  return '$e';
+}
+
 class _HomeBaseData {
   const _HomeBaseData({
     required this.routine,
     required this.group,
     required this.user,
+    required this.errors,
   });
 
-  final RoutineModel routine;
-  final GroupModel group;
-  final UserModel user;
+  final RoutineModel? routine;
+  final GroupModel? group;
+  final UserModel? user;
+  final List<String> errors;
 }
 
 class _HomeContent extends StatelessWidget {
@@ -152,24 +186,28 @@ class _HomeContent extends StatelessWidget {
     required this.data,
     required this.todayCheckins,
     required this.userCheckins,
+    required this.errors,
     required this.onCheckinPressed,
+    required this.onRetry,
   });
 
   final _HomeBaseData data;
   final List<CheckinModel> todayCheckins;
   final List<CheckinModel> userCheckins;
+  final List<String> errors;
   final VoidCallback onCheckinPressed;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
 
-    final routine = data.routine;
-    final group = data.group;
-    final user = data.user;
+    final routineName = data.routine?.routineName ?? '퇴근 후 스트레칭';
+    final durationMinutes = data.routine?.durationMinutes ?? 10;
+    final scheduledTime = data.user?.routineTime ?? '22:00';
 
-    final totalMembers = group.memberCount;
+    final totalMembers = data.group?.memberCount ?? 5;
     final completedMembers =
         todayCheckins.map((c) => c.userId).toSet().length;
     final streakDays = computeCurrentStreak(userCheckins);
@@ -179,8 +217,12 @@ class _HomeContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (errors.isNotEmpty) ...[
+            _ErrorBanner(errors: errors, onRetry: onRetry),
+            const SizedBox(height: 16),
+          ],
           Text(
-            '오늘도 ${routine.durationMinutes}분만 같이 해볼까요?',
+            '오늘도 $durationMinutes분만 같이 해볼까요?',
             style: textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w600,
               color: colorScheme.onSurface,
@@ -189,9 +231,9 @@ class _HomeContent extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           _RoutineCard(
-            routineName: routine.routineName,
-            duration: '${routine.durationMinutes}분',
-            scheduledTime: user.routineTime,
+            routineName: routineName,
+            duration: '$durationMinutes분',
+            scheduledTime: scheduledTime,
             completedMembers: completedMembers,
             totalMembers: totalMembers,
             streakDays: streakDays,
@@ -226,10 +268,10 @@ class _HomeContent extends StatelessWidget {
   }
 }
 
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.errors, required this.onRetry});
 
-  final String message;
+  final List<String> errors;
   final VoidCallback onRetry;
 
   @override
@@ -237,34 +279,56 @@ class _ErrorView extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.cloud_off_rounded,
-              size: 56,
-              color: colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                height: 1.5,
+    final hasPermissionIssue = errors.any(
+      (m) => m.contains('permission-denied'),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 18,
+                color: colorScheme.onErrorContainer,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hasPermissionIssue
+                      ? 'Firestore 권한 문제입니다'
+                      : '일부 데이터를 불러오지 못해 임시값을 사용 중이에요',
+                  style: textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onRetry,
+                child: const Text('다시 시도'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          for (final e in errors)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '· $e',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onErrorContainer,
+                ),
               ),
             ),
-            const SizedBox(height: 20),
-            FilledButton.tonalIcon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('다시 시도'),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
